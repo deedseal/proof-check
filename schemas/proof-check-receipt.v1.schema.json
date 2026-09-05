@@ -305,8 +305,10 @@
       "items": { "$ref": "#/$defs/detailCode" }
     },
     "outside_paths": {
-      "description": "Sorted; present if and only if reason_codes contains SCOPE_ESCAPE.",
+      "description": "Sorted; present if and only if reason_codes contains SCOPE_ESCAPE; never empty.",
       "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
       "items": { "$ref": "#/$defs/nonEmptyString" }
     },
     "limitations": {

@@ -16,7 +16,7 @@ The question it answers for one pull request at one exact commit: do the changed
 | `FAIL` | The change touched paths outside its declared scope. The receipt names them. |
 | `INDETERMINATE` | The tool does not have enough evidence to say either honestly. The job fails rather than guessing green. |
 
-Every verdict comes with a plain-language explanation and a JSON receipt: what was checked, at which commit, with what result, verifiable offline without trusting Proof Check or the machine that produced it.
+Every verdict comes with a plain-language explanation and a JSON receipt: what was checked, at which commit, with what result. The receipt's integrity can be checked offline without trusting Proof Check; what it observed still rests on GitHub and on the runner that produced it, as [`SECURITY.md`](SECURITY.md) spells out.
 
 ## What it is not
 
