@@ -49,6 +49,8 @@ _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0
 _SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 _API_VERSION = "2022-11-28"
+_PAGE_SIZE = 100
+_PAGE_CEILING = CHANGED_FILES_CEILING // _PAGE_SIZE
 
 
 class TransportRefusal(ValueError):
@@ -119,7 +121,7 @@ class OnlineObservation:
 
 
 def _validate_repository(repository: str) -> None:
-    if not _REPOSITORY_RE.fullmatch(repository):
+    if not _REPOSITORY_RE.fullmatch(repository) or repository.split("/", 1)[1] in {".", ".."}:
         raise ValueError("repository must be owner/name using GitHub repository characters")
 
 
@@ -298,7 +300,7 @@ def _collect_files(reader: GitHubReader, pr_number: int, expected_count: int) ->
     while len(records) < CHANGED_FILES_CEILING:
         try:
             items = _array(
-                reader.get_json(f"pulls/{pr_number}/files", {"per_page": 100, "page": page}),
+                reader.get_json(f"pulls/{pr_number}/files", {"per_page": _PAGE_SIZE, "page": page}),
                 "PULL_REQUEST_FILES_RESPONSE_INVALID",
             )
             for item_value in items:
@@ -324,9 +326,7 @@ def _collect_files(reader: GitHubReader, pr_number: int, expected_count: int) ->
         if len(records) >= CHANGED_FILES_CEILING:
             truncated = True
             break
-        if len(records) >= expected_count:
-            break
-        if len(items) < 100:
+        if len(items) < _PAGE_SIZE:
             break
         page += 1
     if len(records) != expected_count:
@@ -340,10 +340,10 @@ def _collect_checks(reader: GitHubReader, sha: str) -> tuple[tuple[CheckObservat
     errors: list[str] = []
     page = 1
     total: int | None = None
-    while True:
+    while page <= _PAGE_CEILING:
         try:
             document = _object(
-                reader.get_json(f"commits/{sha}/check-runs", {"per_page": 100, "page": page}),
+                reader.get_json(f"commits/{sha}/check-runs", {"per_page": _PAGE_SIZE, "page": page}),
                 "CHECK_RUNS_RESPONSE_INVALID",
             )
             reported = _integer(document.get("total_count"), "CHECK_RUNS_COUNT_MISSING")
@@ -374,7 +374,12 @@ def _collect_checks(reader: GitHubReader, sha: str) -> tuple[tuple[CheckObservat
         except (GitHubAPIError, TransportRefusal) as error:
             errors.append(getattr(error, "code", "GITHUB_REQUEST_REFUSED"))
             break
-        if (total is not None and len(records) >= total) or len(items) < 100:
+        if len(items) < _PAGE_SIZE:
+            break
+        if page == _PAGE_CEILING:
+            errors.append("CHECK_RUNS_PAGINATION_LIMIT")
+            break
+        if total is not None and len(records) >= total:
             break
         page += 1
     if total is not None and len(records) != total:
@@ -387,10 +392,10 @@ def _collect_reviews(reader: GitHubReader, pr_number: int) -> tuple[tuple[Review
     identifiers: set[int] = set()
     errors: list[str] = []
     page = 1
-    while True:
+    while page <= _PAGE_CEILING:
         try:
             items = _array(
-                reader.get_json(f"pulls/{pr_number}/reviews", {"per_page": 100, "page": page}),
+                reader.get_json(f"pulls/{pr_number}/reviews", {"per_page": _PAGE_SIZE, "page": page}),
                 "REVIEWS_RESPONSE_INVALID",
             )
             for item_value in items:
@@ -413,7 +418,10 @@ def _collect_reviews(reader: GitHubReader, pr_number: int) -> tuple[tuple[Review
         except (GitHubAPIError, TransportRefusal) as error:
             errors.append(getattr(error, "code", "GITHUB_REQUEST_REFUSED"))
             break
-        if len(items) < 100:
+        if len(items) < _PAGE_SIZE:
+            break
+        if page == _PAGE_CEILING:
+            errors.append("REVIEWS_PAGINATION_LIMIT")
             break
         page += 1
     return tuple(records), tuple(errors)
@@ -471,6 +479,7 @@ def collect_evidence(
     declaration_text: str | None = None,
     transport: Transport | Callable[..., Any] | None = None,
     clock: Callable[[], datetime] | None = None,
+    error_reporter: Callable[[str], None] | None = None,
 ) -> Evidence:
     """Collect one bounded observation and return deterministic-core input.
 
@@ -497,10 +506,11 @@ def collect_evidence(
     except (GitHubAPIError, TransportRefusal) as error:
         raise ObservationUnavailable("PULL_REQUEST_COORDINATES_UNAVAILABLE") from error
 
-    changed, _file_errors = _collect_files(reader, pr_number, expected_count)
+    changed, file_errors = _collect_files(reader, pr_number, expected_count)
     checks, check_errors = _collect_checks(reader, subject.head_sha)
     reviews, review_errors = _collect_reviews(reader, pr_number)
-    declaration, _declaration_errors = _declaration(reader, pull, policy, subject, declaration_text)
+    declaration, declaration_errors = _declaration(reader, pull, policy, subject, declaration_text)
+    collected_errors = list(file_errors + check_errors + review_errors + declaration_errors)
 
     observed_head: str | None
     try:
@@ -510,17 +520,23 @@ def collect_evidence(
         final_count = _integer(final_pull.get("changed_files"), "PULL_REQUEST_CHANGED_FILES_MISSING")
         if final_count != expected_count:
             changed = ChangedPathsObservation(changed.api_reported_count, changed.records, True)
+            collected_errors.append("PULL_REQUEST_CHANGED_FILES_CHANGED")
     except (GitHubAPIError, TransportRefusal):
         observed_head = None
+        collected_errors.append("PULL_REQUEST_HEAD_READBACK_FAILED")
 
     if target_kind is TargetKind.TEST_MERGE and subject.merge_or_group_sha is None:
         observed_head = None
+        collected_errors.append("TEST_MERGE_SHA_MISSING")
     # The core already represents a missing declaration and a failed head
     # readback directly.  Check and review pagination have no completeness
     # field in rules/v0, so those failures make the overall changed-path
     # observation incomplete to prevent a partial bundle from passing.
     if (check_errors or review_errors) and not changed.truncated:
         changed = ChangedPathsObservation(changed.api_reported_count, changed.records, True)
+    if error_reporter is not None:
+        for code in dict.fromkeys(collected_errors):
+            error_reporter(code)
     captured = _utc_now(clock)
     observation = Observation(
         cutoff_utc=captured,

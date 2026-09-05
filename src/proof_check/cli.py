@@ -15,8 +15,17 @@ from typing import Any, Sequence, TextIO
 
 import proof_check.contracts as contract_module
 from proof_check.canonical import canonical_bytes, sha256_hex
-from proof_check.contracts import POLICY_SCHEMA_VERSION, PolicyDocument, Receipt, SchemaViolation, Verdict, validate_policy
+from proof_check.contracts import (
+    POLICY_SCHEMA_VERSION,
+    PolicyDocument,
+    Receipt,
+    SchemaViolation,
+    SourceType,
+    Verdict,
+    validate_policy,
+)
 from proof_check.github_read import ObservationUnavailable, Transport, collect_evidence, reobserve_pull_request
+from proof_check.scope import ScopeRefusal, parse_manifest, parse_pr_body_allowlist
 from proof_check.verify import ConfigurationError, build_receipt, evaluate, verify_receipt
 
 __all__ = ["main", "resolve_source_commit"]
@@ -82,31 +91,46 @@ def _read_json_object(path: Path, label: str) -> dict[str, Any]:
 
 def _read_text(path: Path, label: str) -> str:
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as error:
         raise ValueError(f"{label} is unreadable UTF-8: {path}") from error
 
 
-def _git_commit(directory: Path) -> str | None:
+def _git_commit(directory: Path, package_directory: Path | None = None) -> str | None:
+    installed = Path(__file__).resolve().parent
+    package_source = installed if package_directory is None else package_directory.resolve()
     try:
-        root = subprocess.run(
+        root_text = subprocess.run(
             ["git", "-C", str(directory), "rev-parse", "--show-toplevel"],
             check=True,
             capture_output=True,
             text=True,
         ).stdout.strip()
+        root = Path(root_text).resolve()
         commit = subprocess.run(
-            ["git", "-C", root, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+            ["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
         ).stdout.strip().lower()
-        dirty = subprocess.run(
-            ["git", "-C", root, "status", "--porcelain=v1", "--untracked-files=no"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-    except (OSError, subprocess.CalledProcessError):
+        installed_files = sorted(installed.glob("*.py"))
+        if not installed_files:
+            return None
+        for installed_file in installed_files:
+            tracked_file = package_source / installed_file.name
+            relative = tracked_file.relative_to(root).as_posix()
+            subprocess.run(
+                ["git", "-C", str(root), "ls-files", "--error-unmatch", "--", relative],
+                check=True,
+                capture_output=True,
+            )
+            committed = subprocess.run(
+                ["git", "-C", str(root), "show", f"HEAD:{relative}"],
+                check=True,
+                capture_output=True,
+            ).stdout
+            if installed_file.read_bytes() != committed:
+                return None
+    except (OSError, ValueError, subprocess.CalledProcessError):
         return None
-    if dirty or not _SHA_RE.fullmatch(commit):
+    if not _SHA_RE.fullmatch(commit):
         return None
     return commit
 
@@ -140,18 +164,9 @@ def _direct_url_commit() -> str | None:
         parsed = urllib.parse.urlsplit(url)
         if parsed.scheme == "file":
             checkout = Path(urllib.parse.unquote(parsed.path))
-            commit = _git_commit(checkout)
-            installed = Path(__file__).resolve().parent
             source = checkout / "src" / "proof_check"
-            if commit is not None and source.is_dir():
-                for installed_file in installed.glob("*.py"):
-                    source_file = source / installed_file.name
-                    try:
-                        if not source_file.is_file() or installed_file.read_bytes() != source_file.read_bytes():
-                            return None
-                    except OSError:
-                        return None
-                return commit
+            if source.is_dir():
+                return _git_commit(checkout, source)
     return None
 
 
@@ -242,6 +257,10 @@ def _check(
     if args.pr < 1:
         print("REFUSED: pull request number must be positive", file=stderr)
         return EXIT_INVALID
+    receipt_path = Path(args.receipt)
+    if not receipt_path.parent.is_dir():
+        print(f"REFUSED: receipt directory does not exist: {receipt_path.parent}", file=stderr)
+        return EXIT_INVALID
     try:
         _configure_contract_schema_dir()
         policy_data = _read_json_object(Path(args.policy), "policy")
@@ -256,26 +275,27 @@ def _check(
         declaration_text = None if args.declaration is None else _read_text(Path(args.declaration), "declaration")
         token = _token(args.token_env)
         commit = resolve_source_commit(source_commit)
+        if policy is None:
+            # Collection still needs a bounded source decision.  An inert inline
+            # policy is used only to gather coordinates; evaluate() receives the
+            # original versioned object and returns the core's closed response.
+            collector_policy = PolicyDocument.from_dict(
+                {
+                    "schema_version": POLICY_SCHEMA_VERSION,
+                    "scope": {"source": "pr_body_allowlist", "trust": "none", "entries": ["README.md"]},
+                    "checks": {"required_selectors": []},
+                    "reviews": {"policy": "none"},
+                    "verdict_policy": {"fail_exit": 10, "indeterminate_exit": 20},
+                    "receipt": {"mode": "always"},
+                }
+            )
+        else:
+            collector_policy = policy
     except (ValueError, SchemaViolation) as error:
         print(f"REFUSED: {error}", file=stderr)
         return EXIT_INVALID
 
-    if policy is None:
-        # Collection still needs a bounded source decision.  An inert inline
-        # policy is used only to gather coordinates; evaluate() receives the
-        # original versioned object and returns the core's closed response.
-        collector_policy = PolicyDocument.from_dict(
-            {
-                "schema_version": POLICY_SCHEMA_VERSION,
-                "scope": {"source": "pr_body_allowlist", "trust": "none", "entries": ["README.md"]},
-                "checks": {"required_selectors": []},
-                "reviews": {"policy": "none"},
-                "verdict_policy": {"fail_exit": 10, "indeterminate_exit": 20},
-                "receipt": {"mode": "always"},
-            }
-        )
-    else:
-        collector_policy = policy
+    observation_errors: list[str] = []
     try:
         evidence = collect_evidence(
             args.repo,
@@ -285,10 +305,11 @@ def _check(
             target=args.target,
             declaration_text=declaration_text,
             transport=transport,
+            error_reporter=observation_errors.append,
         )
         evaluation = evaluate(policy_data if policy is None else policy, evidence)
         receipt = build_receipt(evaluation, evidence, commit)
-        _write_receipt(Path(args.receipt), receipt)
+        _write_receipt(receipt_path, receipt)
     except ObservationUnavailable:
         print("INDETERMINATE: EVIDENCE_MISSING: pull request coordinates could not be observed", file=stdout)
         return EXIT_INDETERMINATE
@@ -302,11 +323,14 @@ def _check(
         return EXIT_INDETERMINATE
 
     print(f"{evaluation.verdict.value}: {evaluation.explanation}", file=stdout)
+    if evaluation.verdict is Verdict.INDETERMINATE and observation_errors:
+        print("OBSERVATION_ERRORS: " + ", ".join(dict.fromkeys(observation_errors)), file=stdout)
     if evaluation.verdict is Verdict.PASS:
         return EXIT_PASS
     if evaluation.verdict is Verdict.FAIL:
         return EXIT_FAIL
     if policy is not None and policy.verdict_policy.indeterminate_exit == 0:
+        print("EXIT 0 BY POLICY OPT-OUT (verdict_policy.indeterminate_exit: 0)", file=stdout)
         return EXIT_PASS
     return EXIT_INDETERMINATE
 
@@ -320,23 +344,49 @@ def _verify_bundle(receipt_bytes: bytes, bundle: Path) -> tuple[Any, list[str]]:
     result = verify_receipt(receipt_bytes, policy=policy)
     findings = list(result.findings)
     declaration_path = bundle / "declaration.txt"
+    declaration_text: str | None = None
     if declaration_path.exists() and result.receipt is not None:
         try:
             declaration = declaration_path.read_bytes()
-            declaration.decode("utf-8")
+            declaration_text = declaration.decode("utf-8")
         except (OSError, UnicodeDecodeError) as error:
             raise ValueError(f"bundle declaration is unreadable UTF-8: {declaration_path}") from error
         recorded = result.receipt.policy.raw_sha256
         actual = sha256_hex(declaration)
         if recorded is None or actual != recorded:
             findings.append("declaration.txt digest does not match the receipt policy record")
+    if result.receipt is not None:
+        source_type = result.receipt.policy.source_type
+        expected_entries: tuple[str, ...] | None = None
+        scope = policy.get("scope")
+        inline_entries = scope.get("entries") if isinstance(scope, dict) else None
+        try:
+            if source_type is SourceType.NONE:
+                expected_entries = ()
+            elif source_type is SourceType.AUTHOR_PR_BODY:
+                if declaration_text is not None:
+                    expected_entries = parse_pr_body_allowlist(declaration_text)
+            elif source_type is SourceType.OWNER_PINNED_INPUT and isinstance(inline_entries, list):
+                expected_entries = tuple(inline_entries)
+            elif source_type in (SourceType.OWNER_PINNED_INPUT, SourceType.TRUSTED_BASE_MANIFEST):
+                if declaration_text is not None:
+                    expected_entries = parse_manifest(declaration_text)
+        except ScopeRefusal as error:
+            findings.append(f"bundle declaration is refused ({error.code})")
+        if expected_entries is None:
+            findings.append("bundle does not contain the declaration needed to derive allowed_entries")
+        elif expected_entries != result.receipt.policy.allowed_entries:
+            findings.append("bundle declaration allowed_entries do not match the receipt policy record")
     return result, findings
 
 
 def _online_differences(receipt: Receipt, current: Any) -> list[str]:
     lines: list[str] = []
-    if current.errors:
-        lines.append("REOBSERVATION_UNAVAILABLE: " + ", ".join(current.errors))
+    unavailable = tuple(error for error in current.errors if error != "COORDINATE_DRIFT")
+    if unavailable:
+        lines.append("REOBSERVATION_UNAVAILABLE: " + ", ".join(unavailable))
+    if "COORDINATE_DRIFT" in current.errors:
+        lines.append("COORDINATE_DRIFT: the pull request head changed during online re-observation")
     if current.head_sha is not None and current.head_sha != receipt.subject.head_sha:
         lines.append(f"HEAD_MOVED: recorded={receipt.subject.head_sha} current={current.head_sha}")
     recorded_count = receipt.observations.changed_paths.api_reported_count
