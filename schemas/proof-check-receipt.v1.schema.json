@@ -1,0 +1,396 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/deedseal/proof-check/schemas/proof-check-receipt.v1.schema.json",
+  "title": "proof-check-receipt/v1",
+  "description": "One receipt binds one verdict to one exact evaluated SHA at one observation cutoff. Canonicalization: JCS-style canonical JSON (RFC 8785 as the reference behavior): UTF-8, object keys sorted lexicographically by code point, no insignificant whitespace, no trailing LF; array order is semantically specified per field (outside_paths sorted; observations.checks and observations.reviews by id ascending). receipt_digest = SHA-256 over the canonical bytes of the receipt object with the receipt_digest member removed. Every other digest names the exact bytes it covers. Raw GitHub body hashes are over the raw body bytes without a synthesized trailing LF. Offline verification proves canonical consistency, schema closure, and digest/provenance only; it never claims current GitHub state or authenticity it cannot prove.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "subject",
+    "observation",
+    "policy",
+    "tool",
+    "observations",
+    "verdict",
+    "reason_codes",
+    "detail_codes",
+    "limitations",
+    "does_not_prove",
+    "verification",
+    "receipt_digest"
+  ],
+  "$defs": {
+    "sha1hex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256hex": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "rfc3339utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reasonCode": {
+      "description": "Closed top-level vocabulary. No new code without a new frozen contract version. PRODUCER_REVIEWER_CONFLICT and MIXED_HEAD_EVIDENCE are reserved in V0: a reserved code appearing as a blocking reason in V0 output is itself a defect.",
+      "type": "string",
+      "enum": [
+        "SCOPE_ESCAPE",
+        "EVIDENCE_MISSING",
+        "EVIDENCE_AMBIGUOUS",
+        "STALE_HEAD",
+        "MIXED_HEAD_EVIDENCE",
+        "PRODUCER_REVIEWER_CONFLICT"
+      ]
+    },
+    "detailCode": {
+      "description": "Rule-level detail codes, closed per rules_version. They never widen the top-level reason vocabulary.",
+      "type": "string",
+      "enum": [
+        "PATH_OUTSIDE_DECLARED_SCOPE",
+        "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE",
+        "CHANGED_PATH_SET_INCOMPLETE",
+        "COORDINATE_DRIFT",
+        "MERGE_GROUP_COORDINATES_COHERENT"
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "proof-check-receipt/v1"
+    },
+    "receipt_id": {
+      "description": "Stable identifier, never reused.",
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "repository_id",
+        "repository_visibility",
+        "pr_number",
+        "target_kind",
+        "evaluated_sha",
+        "base_ref",
+        "base_sha",
+        "head_ref",
+        "head_sha",
+        "merge_or_group_sha"
+      ],
+      "properties": {
+        "repository": {
+          "description": "owner/name public coordinate. Private names are omitted, never hashed into a pseudo-public coordinate.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$"
+        },
+        "repository_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "repository_visibility": {
+          "type": "string",
+          "enum": ["public", "private"]
+        },
+        "pr_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "target_kind": {
+          "description": "head = the PR head commit; test_merge = the synthetic merge commit at refs/pull/N/merge; merge_group = the merge-queue group SHA. Evidence bound to different SHAs across kinds is not incoherence by itself.",
+          "type": "string",
+          "enum": ["head", "test_merge", "merge_group"]
+        },
+        "evaluated_sha": {
+          "description": "The exact SHA the verdict binds to.",
+          "$ref": "#/$defs/sha1hex"
+        },
+        "base_ref": { "$ref": "#/$defs/nonEmptyString" },
+        "base_sha": { "$ref": "#/$defs/sha1hex" },
+        "head_ref": { "$ref": "#/$defs/nonEmptyString" },
+        "head_sha": { "$ref": "#/$defs/sha1hex" },
+        "merge_or_group_sha": {
+          "oneOf": [
+            { "$ref": "#/$defs/sha1hex" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cutoff_utc", "captured_at_utc", "watermark"],
+      "properties": {
+        "cutoff_utc": {
+          "description": "Nothing after this instant is claimed.",
+          "$ref": "#/$defs/rfc3339utc"
+        },
+        "captured_at_utc": { "$ref": "#/$defs/rfc3339utc" },
+        "watermark": {
+          "description": "Monotone observation identifier for replay ordering.",
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_type",
+        "source_locator",
+        "raw_sha256",
+        "allowed_entries",
+        "trust",
+        "policy_digest"
+      ],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": ["none", "author_pr_body", "trusted_base_manifest", "owner_pinned_input"]
+        },
+        "source_locator": {
+          "description": "Public URL or null.",
+          "oneOf": [
+            { "type": "string", "pattern": "^https://" },
+            { "type": "null" }
+          ]
+        },
+        "raw_sha256": {
+          "description": "SHA-256 over the raw UTF-8 bytes of the declaration, no synthesized LF; null when source_type is none.",
+          "oneOf": [
+            { "$ref": "#/$defs/sha256hex" },
+            { "type": "null" }
+          ]
+        },
+        "allowed_entries": {
+          "description": "Declared-scope entries, verbatim, in the policy entry grammar.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "trust": {
+          "description": "An author-controlled declaration is advisory at most, even when frozen and hashed.",
+          "type": "string",
+          "enum": ["none", "advisory", "blocking"]
+        },
+        "policy_digest": {
+          "description": "SHA-256 over the canonical policy object.",
+          "$ref": "#/$defs/sha256hex"
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "source_commit", "rules_version"],
+      "properties": {
+        "name": { "const": "proof-check" },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+        },
+        "source_commit": { "$ref": "#/$defs/sha1hex" },
+        "rules_version": {
+          "description": "Closed identifier of the rule set, e.g. rules/v0.",
+          "type": "string",
+          "pattern": "^rules/v[0-9]+$"
+        }
+      }
+    },
+    "observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["checks", "reviews", "changed_paths"],
+      "properties": {
+        "checks": {
+          "description": "Ordered by id ascending.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "suite_id", "name", "head_sha", "status", "conclusion", "completed_at"],
+            "properties": {
+              "id": { "type": "integer", "minimum": 0 },
+              "suite_id": { "type": "integer", "minimum": 0 },
+              "name": { "$ref": "#/$defs/nonEmptyString" },
+              "head_sha": { "$ref": "#/$defs/sha1hex" },
+              "status": { "$ref": "#/$defs/nonEmptyString" },
+              "conclusion": {
+                "oneOf": [
+                  { "$ref": "#/$defs/nonEmptyString" },
+                  { "type": "null" }
+                ]
+              },
+              "completed_at": {
+                "oneOf": [
+                  { "$ref": "#/$defs/rfc3339utc" },
+                  { "type": "null" }
+                ]
+              }
+            }
+          }
+        },
+        "reviews": {
+          "description": "Ordered by id ascending. actor is a public handle only.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "actor", "association", "state", "submitted_at", "commit_id"],
+            "properties": {
+              "id": { "type": "integer", "minimum": 0 },
+              "actor": { "$ref": "#/$defs/nonEmptyString" },
+              "association": { "$ref": "#/$defs/nonEmptyString" },
+              "state": { "$ref": "#/$defs/nonEmptyString" },
+              "submitted_at": { "$ref": "#/$defs/rfc3339utc" },
+              "commit_id": { "$ref": "#/$defs/sha1hex" }
+            }
+          }
+        },
+        "changed_paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["api_reported_count", "received_count", "complete", "canonical_path_array_sha256", "records"],
+          "properties": {
+            "api_reported_count": { "type": "integer", "minimum": 0 },
+            "received_count": { "type": "integer", "minimum": 0 },
+            "complete": {
+              "description": "false forces INDETERMINATE with EVIDENCE_MISSING and detail CHANGED_PATH_SET_INCOMPLETE.",
+              "type": "boolean"
+            },
+            "canonical_path_array_sha256": { "$ref": "#/$defs/sha256hex" },
+            "records": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["filename", "status", "previous_filename"],
+                "properties": {
+                  "filename": { "$ref": "#/$defs/nonEmptyString" },
+                  "status": { "$ref": "#/$defs/nonEmptyString" },
+                  "previous_filename": {
+                    "oneOf": [
+                      { "$ref": "#/$defs/nonEmptyString" },
+                      { "type": "null" }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "verdict": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "INDETERMINATE"]
+    },
+    "reason_codes": {
+      "description": "Closed vocabulary only; empty for PASS.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/reasonCode" }
+    },
+    "detail_codes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/detailCode" }
+    },
+    "outside_paths": {
+      "description": "Sorted; present if and only if reason_codes contains SCOPE_ESCAPE.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "limitations": {
+      "description": "At least one entry, always. Cannot hide.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "does_not_prove": {
+      "description": "At least one entry, always. Restates that a receipt does not remove trust in GitHub, repository permissions, the evaluated inputs, the runner, or the reader's chosen verifier.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "command", "expected_exit", "verifier_locator", "verifier_sha256"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["offline", "online"]
+        },
+        "command": {
+          "type": "string",
+          "pattern": "^proof-check verify "
+        },
+        "expected_exit": { "const": 0 },
+        "verifier_locator": {
+          "oneOf": [
+            { "type": "string", "pattern": "^https://" },
+            { "type": "null" }
+          ]
+        },
+        "verifier_sha256": {
+          "oneOf": [
+            { "$ref": "#/$defs/sha256hex" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "receipt_digest": { "$ref": "#/$defs/sha256hex" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "verdict": { "const": "PASS" } } },
+      "then": {
+        "properties": {
+          "reason_codes": { "maxItems": 0 },
+          "detail_codes": {
+            "items": {
+              "enum": ["ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE", "MERGE_GROUP_COORDINATES_COHERENT"]
+            }
+          }
+        },
+        "not": { "required": ["outside_paths"] }
+      }
+    },
+    {
+      "if": { "properties": { "verdict": { "const": "FAIL" } } },
+      "then": {
+        "properties": {
+          "reason_codes": {
+            "minItems": 1,
+            "items": { "const": "SCOPE_ESCAPE" }
+          }
+        },
+        "required": ["outside_paths"]
+      }
+    },
+    {
+      "if": { "properties": { "verdict": { "const": "INDETERMINATE" } } },
+      "then": {
+        "properties": {
+          "reason_codes": {
+            "minItems": 1,
+            "items": {
+              "enum": ["EVIDENCE_MISSING", "EVIDENCE_AMBIGUOUS", "STALE_HEAD", "MIXED_HEAD_EVIDENCE"]
+            }
+          }
+        },
+        "not": { "required": ["outside_paths"] }
+      }
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/deedseal/proof-check/schemas/proof-check-policy.v1.schema.json",
+  "title": "proof-check-policy/v1",
+  "description": "Configuration for one Proof Check evaluation. Canonicalized and digested like the receipt (JCS-style canonical JSON, SHA-256 over canonical bytes). Declared-scope entry grammar, adopted verbatim from prior art proven in production CI: one entry per line under a single '## Allowlist' markdown section when the source is a PR body (exactly one such section; zero or duplicates fail CLOSED); each entry is an exact repository-relative path, an fnmatch glob, or a directory prefix ending in '/**'. Fail-closed grammar refusals: bare '*' or '**'; a leading '/'; '..' path traversal; an empty prefix before '/**'; any entry broad enough to swallow the universal improbable probe path (checked at runtime). No section, an empty section, or an out-of-list path all fail CLOSED. Author-controlled declarations remain advisory even when frozen and hashed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "scope", "checks", "reviews", "verdict_policy", "receipt"],
+  "$defs": {
+    "scopeEntry": {
+      "description": "Exact path, fnmatch glob, or '<prefix>/**'. Rejects bare '*' and '**', leading '/', and '..' segments. The universal-swallow refusal is enforced at runtime, not here.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!\\*\\*?$)(?!(?:.*/)?\\.\\.(?:/|$)).+$"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "const": "proof-check-policy/v1"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "trust"],
+      "properties": {
+        "source": {
+          "description": "pr_body_allowlist reads the PR body '## Allowlist' section; file:<repo-relative path> reads a manifest from the trusted base; pinned:<sha256> requires the declaration bytes to match this digest.",
+          "type": "string",
+          "pattern": "^(pr_body_allowlist|file:(?!/)(?!(?:.*/)?\\.\\.(?:/|$)).+|pinned:[0-9a-f]{64})$"
+        },
+        "trust": {
+          "description": "author_pr_body is advisory at most; blocking requires a trusted_base_manifest or owner_pinned_input source.",
+          "type": "string",
+          "enum": ["none", "advisory", "blocking"]
+        },
+        "entries": {
+          "description": "Inline alternative to the source, same grammar.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/scopeEntry" }
+        }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_selectors"],
+      "properties": {
+        "required_selectors": {
+          "description": "Exact check names or app-id selectors.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "reviews": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy"],
+      "properties": {
+        "policy": {
+          "description": "V0: observation only, no review rule.",
+          "type": "string",
+          "enum": ["none", "report_only"]
+        }
+      }
+    },
+    "verdict_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fail_exit", "indeterminate_exit"],
+      "properties": {
+        "fail_exit": {
+          "const": 10
+        },
+        "indeterminate_exit": {
+          "description": "Default 20. An opt-out to 0 must be explicit here and is logged in the receipt; it is never a default.",
+          "type": "integer",
+          "enum": [20, 0],
+          "default": 20
+        }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["always", "on_fail", "off"],
+          "default": "always"
+        }
+      }
+    }
+  }
+}
