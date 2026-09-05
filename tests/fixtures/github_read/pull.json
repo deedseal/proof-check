@@ -1,0 +1,29 @@
+{
+  "number": 42,
+  "state": "open",
+  "draft": false,
+  "changed_files": 250,
+  "merge_commit_sha": "3333333333333333333333333333333333333333",
+  "body": "Intro.\n\n## Allowlist\n\n- docs/**\n",
+  "user": {
+    "login": "octo-author"
+  },
+  "base": {
+    "ref": "main",
+    "sha": "2222222222222222222222222222222222222222",
+    "repo": {
+      "id": 4242,
+      "private": false,
+      "full_name": "example-org/example-repo"
+    }
+  },
+  "head": {
+    "ref": "feature/docs",
+    "sha": "1111111111111111111111111111111111111111",
+    "repo": {
+      "id": 4242,
+      "private": false,
+      "full_name": "example-org/example-repo"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "total_count": 1,
+  "check_runs": [
+    {
+      "id": 70,
+      "check_suite": {
+        "id": 7
+      },
+      "name": "tests",
+      "head_sha": "1111111111111111111111111111111111111111",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-09-05T12:00:00Z"
+    }
+  ]
+}
