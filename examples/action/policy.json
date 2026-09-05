@@ -1,0 +1,20 @@
+{
+  "schema_version": "proof-check-policy/v1",
+  "scope": {
+    "source": "pr_body_allowlist",
+    "trust": "advisory"
+  },
+  "checks": {
+    "required_selectors": []
+  },
+  "reviews": {
+    "policy": "report_only"
+  },
+  "verdict_policy": {
+    "fail_exit": 10,
+    "indeterminate_exit": 20
+  },
+  "receipt": {
+    "mode": "always"
+  }
+}

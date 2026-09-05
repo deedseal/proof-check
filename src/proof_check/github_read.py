@@ -263,6 +263,10 @@ def _has_next_page(headers: Mapping[str, str]) -> bool:
     return any('rel="next"' in part for part in link.split(","))
 
 
+def _has_link_header(headers: Mapping[str, str]) -> bool:
+    return any(name.lower() == "link" for name in headers)
+
+
 def _pull_coordinates(document: Any, repository: str, pr_number: int, target: TargetKind) -> tuple[Subject, str | None, str, bool]:
     pull = _object(document, "PULL_REQUEST_RESPONSE_INVALID")
     base = _object(pull.get("base"), "PULL_REQUEST_BASE_MISSING")
@@ -405,6 +409,7 @@ def _collect_reviews(reader: GitHubReader, pr_number: int) -> tuple[tuple[Review
                 reader.get_json(f"pulls/{pr_number}/reviews", {"per_page": _PAGE_SIZE, "page": page}),
                 "REVIEWS_RESPONSE_INVALID",
             )
+            has_link_header = _has_link_header(reader.last_response_headers)
             has_next_page = _has_next_page(reader.last_response_headers)
             for item_value in items:
                 item = _object(item_value, "REVIEW_INVALID")
@@ -429,7 +434,7 @@ def _collect_reviews(reader: GitHubReader, pr_number: int) -> tuple[tuple[Review
         if len(items) < _PAGE_SIZE:
             break
         if page == _PAGE_CEILING:
-            if has_next_page:
+            if not has_link_header or has_next_page:
                 errors.append("REVIEWS_PAGINATION_LIMIT")
             break
         page += 1
