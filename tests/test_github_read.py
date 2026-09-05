@@ -68,8 +68,8 @@ class FixtureTransport:
         self.review_pages = review_pages or {1: _load("reviews-page-1.json")}
 
     @staticmethod
-    def response(value, status: int = 200) -> HTTPResponse:
-        return HTTPResponse(status, {}, json.dumps(value).encode("utf-8"))
+    def response(value, status: int = 200, headers: dict[str, str] | None = None) -> HTTPResponse:
+        return HTTPResponse(status, headers or {}, json.dumps(value).encode("utf-8"))
 
     def request(self, method: str, url: str, headers) -> HTTPResponse:
         self.calls.append((method, url))
@@ -96,7 +96,10 @@ class FixtureTransport:
         if parsed.path.endswith("/pulls/42/reviews"):
             if self.review_status != 200:
                 return self.response({}, self.review_status)
-            return self.response(self.review_pages.get(page, []))
+            headers = {}
+            if any(number > page and items for number, items in self.review_pages.items()):
+                headers["Link"] = f'<https://api.github.com/repositories/9/pulls/42/reviews?page={page + 1}>; rel="next"'
+            return self.response(self.review_pages.get(page, []), headers=headers)
         return self.response({}, 404)
 
 
@@ -213,11 +216,12 @@ def test_checks_and_reviews_paginate_to_their_end():
     assert evaluate(_policy(), evidence).verdict is Verdict.PASS
 
 
-def test_checks_and_reviews_stop_at_the_file_page_ceiling():
+@pytest.mark.parametrize(("total", "verdict"), [(3000, Verdict.PASS), (3001, Verdict.INDETERMINATE)])
+def test_checks_and_reviews_distinguish_complete_page_ceiling(total, verdict):
     check_item = _load("check-runs-page-1.json")["check_runs"][0]
     check_pages = {
         page: {
-            "total_count": 4000,
+            "total_count": total,
             "check_runs": [
                 {**check_item, "id": (page - 1) * 100 + value}
                 for value in range(1, 101)
@@ -233,13 +237,30 @@ def test_checks_and_reviews_stop_at_the_file_page_ceiling():
         ]
         for page in range(1, 31)
     }
+    if total == 3001:
+        review_pages[31] = [{**review_item, "id": 3001}]
     transport = FixtureTransport(check_pages=check_pages, review_pages=review_pages)
-    evidence = collect_evidence("example-org/example-repo", 42, _policy(), "token-value", transport=transport, clock=_clock)
+    errors = []
+    evidence = collect_evidence(
+        "example-org/example-repo",
+        42,
+        _policy(),
+        "token-value",
+        transport=transport,
+        clock=_clock,
+        error_reporter=errors.append,
+    )
     check_urls = [url for _method, url in transport.calls if "/check-runs?" in url]
     review_urls = [url for _method, url in transport.calls if "/reviews?" in url]
     assert len(check_urls) == 30
     assert len(review_urls) == 30
-    assert evaluate(_policy(), evidence).verdict is Verdict.INDETERMINATE
+    assert evaluate(_policy(), evidence).verdict is verdict
+    expected_errors = [] if total == 3000 else [
+        "CHECK_RUNS_PAGINATION_LIMIT",
+        "CHECK_RUNS_COUNT_MISMATCH",
+        "REVIEWS_PAGINATION_LIMIT",
+    ]
+    assert errors == expected_errors
 
 
 def test_manifest_is_read_at_the_base_sha():
