@@ -1,0 +1,1674 @@
+{
+  "schema": "proof-check.test-vectors/v0",
+  "description": "Synthetic, sanitized vectors for the rules/v0 deterministic core. Each vector deep-merges its policy and evidence over the defaults (objects merge by key, every other value replaces) and states the exact expected verdict, reason codes and detail codes. No network call may change any expected output. Tampered twins are derived from every vector's receipt at test time.",
+  "defaults": {
+    "policy": {
+      "schema_version": "proof-check-policy/v1",
+      "scope": {
+        "source": "pr_body_allowlist",
+        "trust": "advisory"
+      },
+      "checks": {
+        "required_selectors": []
+      },
+      "reviews": {
+        "policy": "report_only"
+      },
+      "verdict_policy": {
+        "fail_exit": 10,
+        "indeterminate_exit": 20
+      },
+      "receipt": {
+        "mode": "always"
+      }
+    },
+    "evidence": {
+      "subject": {
+        "repository": "example-org/example-repo",
+        "repository_id": 1,
+        "repository_visibility": "public",
+        "pr_number": 42,
+        "target_kind": "head",
+        "evaluated_sha": "1111111111111111111111111111111111111111",
+        "base_ref": "main",
+        "base_sha": "2222222222222222222222222222222222222222",
+        "head_ref": "feature/readme",
+        "head_sha": "1111111111111111111111111111111111111111",
+        "merge_or_group_sha": null
+      },
+      "observation": {
+        "cutoff_utc": "2026-09-05T12:00:00Z",
+        "captured_at_utc": "2026-09-05T12:00:00Z",
+        "watermark": "w-000001"
+      },
+      "changed_paths": {
+        "api_reported_count": 1,
+        "records": [
+          {
+            "filename": "README.md",
+            "status": "modified",
+            "previous_filename": null
+          }
+        ],
+        "truncated": false
+      },
+      "declaration": {
+        "text": "Intro prose.\n\n## Allowlist\n\n- README.md\n\n## Notes\n\nMore prose.\n",
+        "bound_sha": null,
+        "locator": "https://github.com/example-org/example-repo/pull/42"
+      },
+      "observed_head_sha": "1111111111111111111111111111111111111111",
+      "checks": [],
+      "reviews": [],
+      "pr_author": null
+    }
+  },
+  "vectors": [
+    {
+      "id": "scope-fail-readme-only-23-paths",
+      "family": "scope",
+      "description": "Declared scope README.md only; 23 changed paths, 22 outside. Sanitized synthetic analog of the public path-scope case.",
+      "evidence": {
+        "changed_paths": {
+          "api_reported_count": 23,
+          "records": [
+            {
+              "filename": ".github/workflows/ci.yml",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": ".gitignore",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "CHANGELOG.md",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "LICENSE",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/img/flow.png",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/setup.md",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/usage.md",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "package.json",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "scripts/build.sh",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "scripts/release.sh",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/app.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/index.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/lib/config.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/lib/http.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/lib/logger.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/routes/health.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/routes/status.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/types/index.d.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "tests/app.test.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "tests/fixtures/sample.json",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "tests/lib/config.test.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "tsconfig.json",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "README.md",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "reason_codes": [
+          "SCOPE_ESCAPE"
+        ],
+        "detail_codes": [
+          "PATH_OUTSIDE_DECLARED_SCOPE"
+        ],
+        "outside_paths": [
+          ".github/workflows/ci.yml",
+          ".gitignore",
+          "CHANGELOG.md",
+          "LICENSE",
+          "docs/img/flow.png",
+          "docs/setup.md",
+          "docs/usage.md",
+          "package.json",
+          "scripts/build.sh",
+          "scripts/release.sh",
+          "src/app.ts",
+          "src/index.ts",
+          "src/lib/config.ts",
+          "src/lib/http.ts",
+          "src/lib/logger.ts",
+          "src/routes/health.ts",
+          "src/routes/status.ts",
+          "src/types/index.d.ts",
+          "tests/app.test.ts",
+          "tests/fixtures/sample.json",
+          "tests/lib/config.test.ts",
+          "tsconfig.json"
+        ]
+      }
+    },
+    {
+      "id": "scope-pass-readme-only-twin",
+      "family": "scope",
+      "description": "Declared scope README.md only; README.md is the only changed path.",
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+        ]
+      }
+    },
+    {
+      "id": "scope-fail-rename-old-path-escapes",
+      "family": "scope",
+      "description": "Rename from outside the scope into it: the old path escapes.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `README.md`\n- `docs/**`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 1,
+          "records": [
+            {
+              "filename": "docs/notes.md",
+              "status": "renamed",
+              "previous_filename": "src/old-notes.md"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "reason_codes": [
+          "SCOPE_ESCAPE"
+        ],
+        "detail_codes": [
+          "PATH_OUTSIDE_DECLARED_SCOPE"
+        ],
+        "outside_paths": [
+          "src/old-notes.md"
+        ]
+      }
+    },
+    {
+      "id": "scope-fail-rename-new-path-escapes",
+      "family": "scope",
+      "description": "Rename from inside the scope to outside it: the new path escapes.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `README.md`\n- `docs/**`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 1,
+          "records": [
+            {
+              "filename": "src/notes.md",
+              "status": "renamed",
+              "previous_filename": "docs/notes.md"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "reason_codes": [
+          "SCOPE_ESCAPE"
+        ],
+        "detail_codes": [
+          "PATH_OUTSIDE_DECLARED_SCOPE"
+        ],
+        "outside_paths": [
+          "src/notes.md"
+        ]
+      }
+    },
+    {
+      "id": "scope-pass-rename-inside-scope",
+      "family": "scope",
+      "description": "Rename with both paths inside the scope.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/**`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 1,
+          "records": [
+            {
+              "filename": "docs/b.md",
+              "status": "renamed",
+              "previous_filename": "docs/a.md"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+        ]
+      }
+    },
+    {
+      "id": "scope-pass-glob-covers-diff",
+      "family": "scope",
+      "description": "Glob, prefix and exact entries lawfully covering every changed path.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/*.md`\n- `src/**`\n- `tests/test_*.py`\n- `pyproject.toml`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 5,
+          "records": [
+            {
+              "filename": "docs/guide.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/pkg/deep/mod.py",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/top.py",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "tests/test_mod.py",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "pyproject.toml",
+              "status": "modified",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+        ]
+      }
+    },
+    {
+      "id": "scope-fail-prefix-does-not-cover-sibling",
+      "family": "scope",
+      "description": "docs/** does not cover docs-site/ or a file named docs.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/**`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 3,
+          "records": [
+            {
+              "filename": "docs/a.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs-site/index.html",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "reason_codes": [
+          "SCOPE_ESCAPE"
+        ],
+        "detail_codes": [
+          "PATH_OUTSIDE_DECLARED_SCOPE"
+        ],
+        "outside_paths": [
+          "docs",
+          "docs-site/index.html"
+        ]
+      }
+    },
+    {
+      "id": "scope-pass-empty-changed-set",
+      "family": "scope",
+      "description": "A complete, empty changed-path set has nothing outside the scope.",
+      "evidence": {
+        "changed_paths": {
+          "api_reported_count": 0,
+          "records": []
+        }
+      },
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+        ]
+      }
+    },
+    {
+      "id": "scope-refused-bare-star",
+      "family": "scope",
+      "description": "Entry '*' is refused by the grammar; never PASS.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `*`\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-bare-double-star",
+      "family": "scope",
+      "description": "Entry '**' is refused by the grammar; never PASS.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `**`\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-parent-traversal",
+      "family": "scope",
+      "description": "Entry with a '..' segment is refused.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/../README.md`\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-leading-slash",
+      "family": "scope",
+      "description": "Entry starting with '/' is refused.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `/README.md`\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-empty-prefix",
+      "family": "scope",
+      "description": "Entry '/**' has an empty prefix and is refused.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `/**`\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-universal-swallow",
+      "family": "scope",
+      "description": "Entry '????*' swallows the universal probe path and is refused.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `????*`\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-universal-swallow-prefixless-glob",
+      "family": "scope",
+      "description": "Entry '**/*' swallows the universal probe path and is refused.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `**/*`\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-one-bad-entry-poisons-scope",
+      "family": "scope",
+      "description": "A lawful entry next to a refused one does not rescue the declaration.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `README.md`\n- `*`\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-duplicate-section",
+      "family": "scope",
+      "description": "Two '## Allowlist' sections fail closed.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `**`\n\n## Allowlist\n\n- README.md\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-empty-section",
+      "family": "scope",
+      "description": "A section with prose and no entries fails closed.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n(prose only, no entries)\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-refused-no-section",
+      "family": "scope",
+      "description": "A body without any '## Allowlist' section fails closed.",
+      "evidence": {
+        "declaration": {
+          "text": "Just a description.\n\n## Summary\n\n- README.md\n"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "scope-pass-inline-policy-entries",
+      "family": "scope",
+      "description": "Inline policy entries (owner-pinned input) covering the diff.",
+      "policy": {
+        "scope": {
+          "source": "pinned:0000000000000000000000000000000000000000000000000000000000000000",
+          "trust": "blocking",
+          "entries": [
+            "README.md",
+            "docs/**"
+          ]
+        }
+      },
+      "evidence": {
+        "declaration": {
+          "text": null,
+          "locator": null
+        },
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/x.md",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+        ]
+      }
+    },
+    {
+      "id": "scope-pass-trusted-base-manifest",
+      "family": "scope",
+      "description": "Manifest file read at the base commit, entries cover the diff.",
+      "policy": {
+        "scope": {
+          "source": "file:.proof-check/scope.txt",
+          "trust": "blocking"
+        }
+      },
+      "evidence": {
+        "declaration": {
+          "text": "# scope\nREADME.md\ndocs/**\n",
+          "bound_sha": "2222222222222222222222222222222222222222",
+          "locator": "https://github.com/example-org/example-repo/blob/2222222222222222222222222222222222222222/.proof-check/scope.txt"
+        },
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/x.md",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+        ]
+      }
+    },
+    {
+      "id": "scope-fail-pinned-declaration",
+      "family": "scope",
+      "description": "Pinned declaration whose digest matches; a changed path escapes it.",
+      "policy": {
+        "scope": {
+          "source": "pinned:d0919d5bb7576d4b1a495856f1e561985d1063a8e22c74dfb90a5267c165331d",
+          "trust": "blocking"
+        }
+      },
+      "evidence": {
+        "declaration": {
+          "text": "README.md\n",
+          "locator": null
+        },
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/app.py",
+              "status": "modified",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "FAIL",
+        "reason_codes": [
+          "SCOPE_ESCAPE"
+        ],
+        "detail_codes": [
+          "PATH_OUTSIDE_DECLARED_SCOPE"
+        ],
+        "outside_paths": [
+          "src/app.py"
+        ]
+      }
+    },
+    {
+      "id": "scope-config-blocking-author-body",
+      "family": "scope",
+      "description": "A blocking trust on an author PR body is an invalid configuration, not a verdict.",
+      "policy": {
+        "scope": {
+          "source": "pr_body_allowlist",
+          "trust": "blocking"
+        }
+      },
+      "expected": {
+        "configuration_error": true
+      }
+    },
+    {
+      "id": "scope-config-inline-entries-empty",
+      "family": "scope",
+      "description": "Empty inline entries are an invalid configuration, not a verdict.",
+      "policy": {
+        "scope": {
+          "source": "pinned:0000000000000000000000000000000000000000000000000000000000000000",
+          "trust": "blocking",
+          "entries": []
+        }
+      },
+      "expected": {
+        "configuration_error": true
+      }
+    },
+    {
+      "id": "stale-head-moved",
+      "family": "stale",
+      "description": "The head re-read after collection differs from the bound head.",
+      "evidence": {
+        "observed_head_sha": "5555555555555555555555555555555555555555"
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "STALE_HEAD"
+        ],
+        "detail_codes": [
+          "COORDINATE_DRIFT"
+        ]
+      }
+    },
+    {
+      "id": "stale-head-moved-mid-pagination",
+      "family": "stale",
+      "description": "The head moved while the changed-path list was being paged; the set itself looks complete.",
+      "evidence": {
+        "observed_head_sha": "5555555555555555555555555555555555555555",
+        "changed_paths": {
+          "api_reported_count": 23,
+          "records": [
+            {
+              "filename": ".github/workflows/ci.yml",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": ".gitignore",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "CHANGELOG.md",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "LICENSE",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/img/flow.png",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/setup.md",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/usage.md",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "package.json",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "scripts/build.sh",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "scripts/release.sh",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/app.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/index.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/lib/config.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/lib/http.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/lib/logger.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/routes/health.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/routes/status.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "src/types/index.d.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "tests/app.test.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "tests/fixtures/sample.json",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "tests/lib/config.test.ts",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "tsconfig.json",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "README.md",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "STALE_HEAD"
+        ],
+        "detail_codes": [
+          "COORDINATE_DRIFT"
+        ]
+      }
+    },
+    {
+      "id": "stale-head-moved-and-set-incomplete",
+      "family": "stale",
+      "description": "Drift and an incomplete set together: both reasons, still one INDETERMINATE.",
+      "evidence": {
+        "observed_head_sha": "5555555555555555555555555555555555555555",
+        "changed_paths": {
+          "api_reported_count": 3,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "STALE_HEAD",
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": [
+          "COORDINATE_DRIFT",
+          "CHANGED_PATH_SET_INCOMPLETE"
+        ]
+      }
+    },
+    {
+      "id": "mixed-head-merge-group-context-only",
+      "family": "mixed_head",
+      "description": "PR-head review plus merge-group checks, coherent coordinates: PASS with the merge-group detail; the mixture is context only.",
+      "evidence": {
+        "subject": {
+          "target_kind": "merge_group",
+          "evaluated_sha": "4444444444444444444444444444444444444444",
+          "merge_or_group_sha": "4444444444444444444444444444444444444444"
+        },
+        "checks": [
+          {
+            "id": 7,
+            "suite_id": 1,
+            "name": "build",
+            "head_sha": "4444444444444444444444444444444444444444",
+            "status": "completed",
+            "conclusion": "success",
+            "completed_at": "2026-09-05T11:00:00Z"
+          },
+          {
+            "id": 3,
+            "suite_id": 1,
+            "name": "lint",
+            "head_sha": "4444444444444444444444444444444444444444",
+            "status": "completed",
+            "conclusion": "success",
+            "completed_at": "2026-09-05T10:59:00Z"
+          }
+        ],
+        "reviews": [
+          {
+            "id": 9,
+            "actor": "reviewer-a",
+            "association": "MEMBER",
+            "state": "APPROVED",
+            "submitted_at": "2026-09-05T10:00:00Z",
+            "commit_id": "1111111111111111111111111111111111111111"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE",
+          "MERGE_GROUP_COORDINATES_COHERENT"
+        ],
+        "context_contains": "distinct commit SHAs"
+      }
+    },
+    {
+      "id": "mixed-head-test-merge-checks-on-head-kind",
+      "family": "mixed_head",
+      "description": "Checks bound to the test-merge SHA while the subject is the head: recorded as context, never judged.",
+      "evidence": {
+        "subject": {
+          "merge_or_group_sha": "3333333333333333333333333333333333333333"
+        },
+        "checks": [
+          {
+            "id": 1,
+            "suite_id": 1,
+            "name": "ci",
+            "head_sha": "3333333333333333333333333333333333333333",
+            "status": "completed",
+            "conclusion": "success",
+            "completed_at": "2026-09-05T11:00:00Z"
+          }
+        ],
+        "reviews": [
+          {
+            "id": 2,
+            "actor": "reviewer-a",
+            "association": "MEMBER",
+            "state": "APPROVED",
+            "submitted_at": "2026-09-05T10:00:00Z",
+            "commit_id": "1111111111111111111111111111111111111111"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+        ],
+        "context_contains": "distinct commit SHAs"
+      }
+    },
+    {
+      "id": "mixed-head-review-on-older-head-not-a-fail",
+      "family": "mixed_head",
+      "description": "An approval bound to an older commit with later pushes: not a V0 FAIL (native GitHub controls own staleness).",
+      "evidence": {
+        "checks": [
+          {
+            "id": 1,
+            "suite_id": 1,
+            "name": "ci",
+            "head_sha": "1111111111111111111111111111111111111111",
+            "status": "completed",
+            "conclusion": "success",
+            "completed_at": "2026-09-05T11:00:00Z"
+          }
+        ],
+        "reviews": [
+          {
+            "id": 2,
+            "actor": "reviewer-a",
+            "association": "MEMBER",
+            "state": "APPROVED",
+            "submitted_at": "2026-09-05T09:00:00Z",
+            "commit_id": "5555555555555555555555555555555555555555"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+        ],
+        "context_contains": "distinct commit SHAs"
+      }
+    },
+    {
+      "id": "producer-equals-reviewer-no-conflict",
+      "family": "producer_reviewer",
+      "description": "The PR author also reviewed: context only; PRODUCER_REVIEWER_CONFLICT is reserved and never emitted.",
+      "evidence": {
+        "pr_author": "author-x",
+        "reviews": [
+          {
+            "id": 5,
+            "actor": "author-x",
+            "association": "OWNER",
+            "state": "APPROVED",
+            "submitted_at": "2026-09-05T10:00:00Z",
+            "commit_id": "1111111111111111111111111111111111111111"
+          }
+        ]
+      },
+      "expected": {
+        "verdict": "PASS",
+        "reason_codes": [],
+        "detail_codes": [
+          "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+        ],
+        "context_contains": "also appears as a reviewer"
+      }
+    },
+    {
+      "id": "missing-changed-set-count-mismatch",
+      "family": "missing_ambiguous",
+      "description": "GitHub reports more files than were received.",
+      "evidence": {
+        "changed_paths": {
+          "api_reported_count": 4,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/a.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/b.md",
+              "status": "modified",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": [
+          "CHANGED_PATH_SET_INCOMPLETE"
+        ]
+      }
+    },
+    {
+      "id": "missing-changed-set-truncated-flag",
+      "family": "missing_ambiguous",
+      "description": "Counts agree but the collector flagged truncation.",
+      "evidence": {
+        "changed_paths": {
+          "api_reported_count": 1,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            }
+          ],
+          "truncated": true
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": [
+          "CHANGED_PATH_SET_INCOMPLETE"
+        ]
+      }
+    },
+    {
+      "id": "missing-changed-set-at-3000-ceiling",
+      "family": "missing_ambiguous",
+      "description": "A reported count at the 3,000-file ceiling cannot be told apart from a truncated list.",
+      "evidence": {
+        "changed_paths": {
+          "api_reported_count": 3000,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            }
+          ],
+          "truncated": true
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": [
+          "CHANGED_PATH_SET_INCOMPLETE"
+        ]
+      }
+    },
+    {
+      "id": "missing-changed-set-incomplete-would-otherwise-pass",
+      "family": "missing_ambiguous",
+      "description": "Every received path is inside the scope, but the set is incomplete: never PASS.",
+      "evidence": {
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": [
+          "CHANGED_PATH_SET_INCOMPLETE"
+        ]
+      }
+    },
+    {
+      "id": "missing-manifest-absent",
+      "family": "missing_ambiguous",
+      "description": "file: source, manifest absent from the trusted base.",
+      "policy": {
+        "scope": {
+          "source": "file:.proof-check/scope.txt",
+          "trust": "blocking"
+        }
+      },
+      "evidence": {
+        "declaration": {
+          "text": null,
+          "bound_sha": "2222222222222222222222222222222222222222",
+          "locator": null
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "missing-manifest-unbound",
+      "family": "missing_ambiguous",
+      "description": "file: source read at a commit other than the base.",
+      "policy": {
+        "scope": {
+          "source": "file:.proof-check/scope.txt",
+          "trust": "blocking"
+        }
+      },
+      "evidence": {
+        "declaration": {
+          "text": "README.md\n",
+          "bound_sha": "5555555555555555555555555555555555555555",
+          "locator": null
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-manifest-mutable-without-hash",
+      "family": "missing_ambiguous",
+      "description": "file: source read from a mutable ref without a frozen commit hash.",
+      "policy": {
+        "scope": {
+          "source": "file:.proof-check/scope.txt",
+          "trust": "blocking"
+        }
+      },
+      "evidence": {
+        "declaration": {
+          "text": "README.md\n",
+          "bound_sha": null,
+          "locator": null
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-manifest-empty",
+      "family": "missing_ambiguous",
+      "description": "file: manifest with comments only.",
+      "policy": {
+        "scope": {
+          "source": "file:.proof-check/scope.txt",
+          "trust": "blocking"
+        }
+      },
+      "evidence": {
+        "declaration": {
+          "text": "# nothing declared\n\n",
+          "bound_sha": "2222222222222222222222222222222222222222",
+          "locator": null
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "missing-pr-body-absent",
+      "family": "missing_ambiguous",
+      "description": "The PR body could not be read.",
+      "evidence": {
+        "declaration": {
+          "text": null
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "missing-trust-none",
+      "family": "missing_ambiguous",
+      "description": "trust: none declares no scope to hold the change against.",
+      "policy": {
+        "scope": {
+          "source": "pr_body_allowlist",
+          "trust": "none"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-pinned-digest-mismatch",
+      "family": "missing_ambiguous",
+      "description": "Pinned declaration bytes do not digest to the pinned value.",
+      "policy": {
+        "scope": {
+          "source": "pinned:d0919d5bb7576d4b1a495856f1e561985d1063a8e22c74dfb90a5267c165331d",
+          "trust": "blocking"
+        }
+      },
+      "evidence": {
+        "declaration": {
+          "text": "README.md\nsrc/**\n",
+          "locator": null
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "missing-pinned-declaration-absent",
+      "family": "missing_ambiguous",
+      "description": "Pinned source with no declaration bytes provided.",
+      "policy": {
+        "scope": {
+          "source": "pinned:d0919d5bb7576d4b1a495856f1e561985d1063a8e22c74dfb90a5267c165331d",
+          "trust": "blocking"
+        }
+      },
+      "evidence": {
+        "declaration": {
+          "text": null,
+          "locator": null
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-path-invalid-unicode",
+      "family": "missing_ambiguous",
+      "description": "A changed path carrying a lone surrogate is not valid Unicode.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/**`\n- `README.md`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/a\udcffb.txt",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-path-nul",
+      "family": "missing_ambiguous",
+      "description": "A changed path containing NUL.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/**`\n- `README.md`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/a\u0000b.txt",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-path-absolute",
+      "family": "missing_ambiguous",
+      "description": "A changed path that is absolute.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/**`\n- `README.md`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "/etc/passwd",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-path-parent-traversal",
+      "family": "missing_ambiguous",
+      "description": "A changed path with a '..' segment.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/**`\n- `README.md`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/../README.md",
+              "status": "modified",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-path-non-normal",
+      "family": "missing_ambiguous",
+      "description": "A changed path with an empty segment.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/**`\n- `README.md`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "README.md",
+              "status": "modified",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs//a.md",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-path-normalization-collision",
+      "family": "missing_ambiguous",
+      "description": "Two distinct paths that agree after NFC normalization.",
+      "evidence": {
+        "declaration": {
+          "text": "## Allowlist\n\n- `docs/**`\n"
+        },
+        "changed_paths": {
+          "api_reported_count": 2,
+          "records": [
+            {
+              "filename": "docs/caf\u00e9.md",
+              "status": "added",
+              "previous_filename": null
+            },
+            {
+              "filename": "docs/cafe\u0301.md",
+              "status": "added",
+              "previous_filename": null
+            }
+          ]
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-unknown-policy-schema-version",
+      "family": "missing_ambiguous",
+      "description": "A policy with an unknown schema_version is not understood.",
+      "policy": {
+        "schema_version": "proof-check-policy/v2"
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "missing-observed-head-unavailable",
+      "family": "missing_ambiguous",
+      "description": "The head could not be re-read (fork head unavailable).",
+      "evidence": {
+        "observed_head_sha": null
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_MISSING"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-subject-coordinates-incoherent",
+      "family": "missing_ambiguous",
+      "description": "evaluated_sha differs from the head coordinate it claims to be.",
+      "evidence": {
+        "subject": {
+          "evaluated_sha": "3333333333333333333333333333333333333333"
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    },
+    {
+      "id": "ambiguous-merge-group-without-group-sha",
+      "family": "missing_ambiguous",
+      "description": "target_kind merge_group with no merge_or_group_sha recorded.",
+      "evidence": {
+        "subject": {
+          "target_kind": "merge_group",
+          "evaluated_sha": "4444444444444444444444444444444444444444",
+          "merge_or_group_sha": null
+        }
+      },
+      "expected": {
+        "verdict": "INDETERMINATE",
+        "reason_codes": [
+          "EVIDENCE_AMBIGUOUS"
+        ],
+        "detail_codes": []
+      }
+    }
+  ]
+}
