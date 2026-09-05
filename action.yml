@@ -1,0 +1,83 @@
+{
+  "name": "Deedseal Proof Check",
+  "description": "Checks a PR's declared scope, checks, reviews and current head; writes a replayable JSON receipt: PASS/FAIL/INDETERMINATE.",
+  "author": "Deedseal",
+  "branding": {
+    "icon": "check-circle",
+    "color": "blue"
+  },
+  "inputs": {
+    "policy": {
+      "description": "Policy path in the consumer repository",
+      "required": true
+    },
+    "receipt": {
+      "description": "JSON receipt output path",
+      "required": false,
+      "default": "proof-check-receipt.json"
+    },
+    "target": {
+      "description": "Pull request target: head or test_merge",
+      "required": false,
+      "default": "head"
+    },
+    "declaration": {
+      "description": "Optional declaration path",
+      "required": false
+    },
+    "pr": {
+      "description": "Pull request number",
+      "required": false,
+      "default": "${{ github.event.pull_request.number }}"
+    },
+    "repo": {
+      "description": "GitHub owner/name repository",
+      "required": false,
+      "default": "${{ github.repository }}"
+    },
+    "token": {
+      "description": "GitHub read token",
+      "required": false,
+      "default": "${{ github.token }}"
+    }
+  },
+  "outputs": {
+    "verdict": {
+      "description": "PASS, FAIL, or INDETERMINATE",
+      "value": "${{ steps.proof-check.outputs.verdict }}"
+    },
+    "exit-code": {
+      "description": "CLI exit code",
+      "value": "${{ steps.proof-check.outputs.exit-code }}"
+    },
+    "receipt-path": {
+      "description": "Receipt path",
+      "value": "${{ steps.proof-check.outputs.receipt-path }}"
+    },
+    "receipt-digest": {
+      "description": "SHA-256 of the receipt bytes",
+      "value": "${{ steps.proof-check.outputs.receipt-digest }}"
+    }
+  },
+  "runs": {
+    "using": "composite",
+    "steps": [
+      {
+        "id": "proof-check",
+        "shell": "bash",
+        "env": {
+          "GITHUB_ACTION_REF": "${{ github.action_ref }}",
+          "GITHUB_ACTION_REPOSITORY": "${{ github.action_repository }}",
+          "PROOF_CHECK_POLICY": "${{ inputs.policy }}",
+          "PROOF_CHECK_RECEIPT": "${{ inputs.receipt }}",
+          "PROOF_CHECK_TARGET": "${{ inputs.target }}",
+          "PROOF_CHECK_DECLARATION": "${{ inputs.declaration }}",
+          "PROOF_CHECK_PR": "${{ inputs.pr }}",
+          "PROOF_CHECK_REPO": "${{ inputs.repo }}",
+          "PROOF_CHECK_GITHUB_TOKEN": "${{ inputs.token }}"
+        },
+        "run": "bash \"${GITHUB_ACTION_PATH}/action/run.sh\""
+      }
+    ]
+  }
+}

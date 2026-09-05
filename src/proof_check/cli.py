@@ -170,8 +170,13 @@ def _direct_url_commit() -> str | None:
         if parsed.scheme == "file":
             checkout = Path(urllib.parse.unquote(parsed.path))
             source = checkout / "src" / "proof_check"
-            if source.is_dir():
-                return _git_commit(checkout, source, checkout / "schemas")
+            schema_directory = checkout / "schemas"
+            try:
+                consulted_schema_directory = contract_module._schema_dir().resolve()
+            except ValueError:
+                return None
+            if source.is_dir() and consulted_schema_directory == schema_directory.resolve():
+                return _git_commit(checkout, source, consulted_schema_directory)
     vcs = document.get("vcs_info")
     if isinstance(vcs, dict):
         commit = vcs.get("commit_id")
@@ -188,25 +193,25 @@ def _configure_contract_schema_dir() -> None:
     those same bytes without copying or modifying the core package.
     """
 
-    try:
-        contract_module._schema_dir()
-        return
-    except ValueError:
-        pass
     document = _direct_url_document()
     url = None if document is None else document.get("url")
-    if not isinstance(url, str):
+    parsed = urllib.parse.urlsplit(url) if isinstance(url, str) else None
+    if parsed is not None and parsed.scheme == "file":
+        candidate = (Path(urllib.parse.unquote(parsed.path)) / "schemas").resolve()
+        try:
+            already_consulted = contract_module._schema_dir().resolve()
+        except ValueError:
+            already_consulted = None
+        if already_consulted is not None and already_consulted != candidate:
+            raise ValueError("consulted schemas directory is outside the installed source checkout")
+        required = (candidate / contract_module.RECEIPT_SCHEMA_FILE, candidate / contract_module.POLICY_SCHEMA_FILE)
+        if not all(path.is_file() for path in required):
+            raise ValueError("source checkout schemas directory is missing")
+        contract_module._schema_dir = lambda: candidate
+        contract_module.load_schema.cache_clear()
+        contract_module._validator.cache_clear()
         return
-    parsed = urllib.parse.urlsplit(url)
-    if parsed.scheme != "file":
-        return
-    candidate = Path(urllib.parse.unquote(parsed.path)) / "schemas"
-    required = (candidate / contract_module.RECEIPT_SCHEMA_FILE, candidate / contract_module.POLICY_SCHEMA_FILE)
-    if not all(path.is_file() for path in required):
-        return
-    contract_module._schema_dir = lambda: candidate
-    contract_module.load_schema.cache_clear()
-    contract_module._validator.cache_clear()
+    contract_module._schema_dir()
 
 
 def resolve_source_commit(explicit: str | None = None) -> str:
@@ -217,10 +222,11 @@ def resolve_source_commit(explicit: str | None = None) -> str:
         if not _SHA_RE.fullmatch(value):
             raise ValueError("source commit must be 40 lowercase hexadecimal characters")
         return value
+    _configure_contract_schema_dir()
     direct = _direct_url_commit()
     if direct is not None:
         return direct
-    local = _git_commit(Path(__file__).resolve().parent)
+    local = _git_commit(Path(__file__).resolve().parent, schema_directory=contract_module._schema_dir())
     if local is not None:
         return local
     raise ValueError("installed source commit is unknown; install from a clean commit-pinned checkout")

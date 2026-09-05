@@ -275,6 +275,28 @@ def test_modified_checkout_schema_cannot_claim_the_installed_head(tmp_path, sche
     _assert_installed_source_is_refused(python, tmp_path, expected, tmp_path)
 
 
+def test_venv_level_schemas_cannot_replace_checkout_provenance(tmp_path):
+    clone = tmp_path / "proof-check-clone"
+    subprocess.run(["git", "clone", "--quiet", "--no-local", str(REPO_ROOT), str(clone)], check=True)
+    shutil.copy2(REPO_ROOT / "src" / "proof_check" / "cli.py", clone / "src" / "proof_check" / "cli.py")
+    if subprocess.run(["git", "diff", "--quiet"], cwd=clone).returncode:
+        subprocess.run(["git", "add", "src/proof_check/cli.py"], cwd=clone, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=Proof Check test", "-c", "user.email=proof-check@example.invalid", "commit", "--quiet", "-m", "candidate"],
+            cwd=clone,
+            check=True,
+        )
+    expected = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=clone, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    venv = tmp_path / "venv"
+    python = _install_source(clone, venv)
+    version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    planted = venv / "lib" / version / "schemas"
+    shutil.copytree(clone / "schemas", planted)
+    _assert_installed_source_is_refused(python, tmp_path, expected, tmp_path)
+
+
 def test_check_exit_matrix_and_receipt_output(tmp_path, monkeypatch):
     passing = _run_check(tmp_path, monkeypatch, _policy(["docs/**"]), CLIFixtureTransport())
     assert passing[0] == 0

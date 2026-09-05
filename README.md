@@ -80,9 +80,22 @@ The CLI makes only `GET` requests beneath `https://api.github.com/repos/<owner>/
 
 There is no Deedseal account, backend, journal, or upload. GitHub receives the API requests needed to read the named pull request; the receipt is written on the user's machine. It contains repository coordinates, public handles, digests, and the verdict, but not email addresses, token bytes, source contents, or model prompts and responses. When the user checks a private repository, the locally written receipt discloses `subject.repository` (the private repository name), `head_ref`/`base_ref`, changed paths, check names, and reviewer handles. This deviates from `SECURITY.md`'s current private-metadata statement until the contract is amended; handle the receipt under the repository's own disclosure rules.
 
-## Planned permissions
+## GitHub Action
 
-The Action will declare exactly `contents: read`, `pull-requests: read`, `checks: read`, `statuses: read`, and nothing else. It will create no workflow, check, comment, label, review, or merge.
+Pin the Action to the full 40-character commit you reviewed. Give the workflow the four read permissions below, name a `proof-check-policy/v1` policy, and run it on an existing pull request. The Action evaluates declared scope, checks, reviews, and the current head, then reports `PASS`, `FAIL`, or `INDETERMINATE` and writes a replayable JSON receipt.
+
+```yaml
+- uses: deedseal/proof-check@<40-character-commit>
+  with:
+    policy: proof-check-policy.json
+    receipt: proof-check-receipt.json
+```
+
+Retain the receipt from the runner log or a later read-only step if you need to replay it. The Action does not upload an artifact or write to the pull request.
+
+## Permissions
+
+The Action uses exactly `contents: read`, `pull-requests: read`, `checks: read`, `statuses: read`, and nothing else. It creates no workflow, check, comment, label, review, or merge.
 
 ## License
 
