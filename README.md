@@ -1,6 +1,6 @@
 # Proof Check
 
-**Status: not released.** There is no Action to install and no CLI to download yet. This repository currently holds the public contract that the tool will obey: verdict semantics, the receipt and policy schemas, the fixture plan, and the claims boundary. Code follows the contract, not the other way round.
+**Status: not released.** There is no Action or packaged release to install. The CLI can be installed locally from a source commit; the public contract remains the authority for its verdict semantics, receipt and policy schemas, fixture plan, and claims boundary. Code follows the contract, not the other way round.
 
 ## What it is
 
@@ -40,7 +40,45 @@ The full boundary is in [`docs/contract/claims-and-nonclaims.md`](docs/contract/
 
 ## Install
 
-Not yet. When a release exists, it will be pinned by full commit SHA in the examples, with a major tag offered separately as a convenience. Until then nothing here is runnable.
+Choose the full 40-character commit you reviewed, then install that checkout. A branch name is not a pin.
+
+```bash
+git clone https://github.com/deedseal/proof-check.git
+cd proof-check
+git checkout --detach <40-character-commit>
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install .
+proof-check --help
+```
+
+The CLI records the source commit in every receipt. `check` refuses with exit `2` when the installed bytes cannot be associated with a recorded source commit.
+
+## CLI usage
+
+Identify one pull request with `--repo <owner/name>` and `--pr <number>`. The default target is the pull request head; `--target test_merge` selects GitHub's synthetic merge commit. `merge_group` requires event context and is refused by this local command.
+
+```bash
+export GITHUB_TOKEN=<your-read-only-token>
+proof-check check \
+  --repo example-org/example-repo \
+  --pr 42 \
+  --policy policy.json \
+  --receipt proof-check-receipt.json
+
+proof-check verify proof-check-receipt.json \
+  --offline-bundle examples/offline-bundle
+```
+
+For `scope.source: pinned:<sha256>`, pass the declaration bytes with `--declaration <file>`. Offline verification reads `policy.json` and, when present, `declaration.txt` from the bundle directory. Without `--offline-bundle`, `verify` uses the token to observe the pull request again and labels head, file-count, and check differences; it does not change the recorded verdict.
+
+Exit codes are `0` for `PASS` or a verified receipt, `10` for `FAIL`, `20` for `INDETERMINATE` or an unverifiable receipt, and `2` for invalid input, configuration, or usage.
+
+## Permissions and data
+
+The CLI makes only `GET` requests beneath `https://api.github.com/repos/<owner>/<name>/`. Supply a token through the environment variable named by `--token-env` (default `GITHUB_TOKEN`) with read access to repository contents, pull requests, and checks. Token bytes are not placed in receipts, stdout, or stderr. The reader does not download or execute code from the inspected pull request; a `file:` policy reads only its named manifest from the base commit.
+
+There is no Deedseal account, backend, journal, or upload. GitHub receives the API requests needed to read the named pull request; the receipt is written on the user's machine. It contains repository coordinates, public handles, digests, and the verdict, but not email addresses, token bytes, source contents, or model prompts and responses. When the user checks a private repository, the locally written receipt discloses `subject.repository` (the private repository name), `head_ref`/`base_ref`, changed paths, check names, and reviewer handles. This deviates from `SECURITY.md`'s current private-metadata statement until the contract is amended; handle the receipt under the repository's own disclosure rules.
 
 ## Planned permissions
 

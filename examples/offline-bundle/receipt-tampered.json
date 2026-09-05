@@ -1,0 +1,81 @@
+{
+  "schema_version": "proof-check-receipt/v1",
+  "receipt_id": "pcr1-b967475c64960671e3a38c4c0ab5cf7b",
+  "subject": {
+    "repository": "example-org/example-repo",
+    "repository_id": 1,
+    "repository_visibility": "public",
+    "pr_number": 42,
+    "target_kind": "head",
+    "evaluated_sha": "1111111111111111111111111111111111111111",
+    "base_ref": "main",
+    "base_sha": "2222222222222222222222222222222222222222",
+    "head_ref": "feature/readme",
+    "head_sha": "1111111111111111111111111111111111111111",
+    "merge_or_group_sha": null
+  },
+  "observation": {
+    "cutoff_utc": "2026-09-05T12:00:00Z",
+    "captured_at_utc": "2026-09-05T12:00:00Z",
+    "watermark": "w-000001"
+  },
+  "policy": {
+    "source_type": "author_pr_body",
+    "source_locator": "https://github.com/example-org/example-repo/pull/42",
+    "raw_sha256": "eff65903bc85736ed4ed9b57c97be9d6b90d4c2770f3f525d10d9ac3a12ccc74",
+    "allowed_entries": [
+      "README.md"
+    ],
+    "trust": "advisory",
+    "policy_digest": "c95fd7da613394cdbbeb8770249b977b309be4f52f3b65fd9cde54a416349053"
+  },
+  "tool": {
+    "name": "proof-check",
+    "version": "0.0.0",
+    "source_commit": "49c9f1bc6eaea48b9937bc727c976486757fbcd3",
+    "rules_version": "rules/v0"
+  },
+  "observations": {
+    "checks": [],
+    "reviews": [],
+    "changed_paths": {
+      "api_reported_count": 1,
+      "received_count": 1,
+      "complete": true,
+      "canonical_path_array_sha256": "be3ae3b6479236a18da3e876a0de9dfe9ae2428896d83c3e804db008861b12d0",
+      "records": [
+        {
+          "filename": "README.md",
+          "status": "modified",
+          "previous_filename": null
+        }
+      ]
+    }
+  },
+  "verdict": "PASS",
+  "reason_codes": [],
+  "detail_codes": [
+    "ALL_CHANGED_PATHS_WITHIN_DECLARED_SCOPE"
+  ],
+  "limitations": [
+    "The verdict binds solely to 1111111111111111111111111111111111111111 (head) at cutoff 2026-09-05T12:00:00Z; nothing after that instant is claimed.",
+    "PASS means evidence coherence under the declared rules at the named cutoff. Nothing more.",
+    "Offline verification proves canonical consistency, schema closure and digests only; it never claims current GitHub state.",
+    "The declared scope is author-controlled and therefore advisory evidence, never security policy."
+  ],
+  "does_not_prove": [
+    "That the runner was honest: GitHub Actions job truth is GitHub-owned, and a receipt cannot prove otherwise.",
+    "That the provider behind a green status actually tested the bytes.",
+    "Current GitHub state, when verified offline.",
+    "Anything about the correctness, quality, or authorization of the change.",
+    "A receipt does not remove trust in GitHub, repository permissions, the evaluated inputs, the runner, or the reader's chosen verifier."
+  ],
+  "verification": {
+    "mode": "offline",
+    "command": "proof-check verify proof-check-receipt.json --offline-bundle .",
+    "expected_exit": 0,
+    "verifier_locator": null,
+    "verifier_sha256": null
+  },
+  "receipt_digest": "ad0ca8be19987ba672697ace4bfab3a2708c8e201d592e1a812c120358cd6b47"
+}

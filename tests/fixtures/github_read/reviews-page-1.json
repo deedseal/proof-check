@@ -1,0 +1,12 @@
+[
+  {
+    "id": 80,
+    "user": {
+      "login": "octo-reviewer"
+    },
+    "author_association": "MEMBER",
+    "state": "APPROVED",
+    "submitted_at": "2026-09-05T11:00:00Z",
+    "commit_id": "1111111111111111111111111111111111111111"
+  }
+]

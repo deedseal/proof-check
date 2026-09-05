@@ -19,6 +19,9 @@ test = ["pytest>=7"]
 [project.urls]
 Homepage = "https://github.com/deedseal/proof-check"
 
+[project.scripts]
+proof-check = "proof_check.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
