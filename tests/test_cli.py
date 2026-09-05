@@ -48,11 +48,13 @@ class CLIFixtureTransport:
         paths: list[str] | None = None,
         moved_sha: str | None = None,
         merge_sha: str | None = "3" * 40,
+        body: str | None = "## Allowlist\n- docs/**\n",
     ):
         self.changed_files = changed_files
         self.paths = paths if paths is not None else ["docs/readme.md"]
         self.moved_sha = moved_sha
         self.merge_sha = merge_sha
+        self.body = body
         self.pull_reads = 0
         self.calls: list[tuple[str, str]] = []
 
@@ -72,7 +74,7 @@ class CLIFixtureTransport:
                     "draft": False,
                     "changed_files": self.changed_files,
                     "merge_commit_sha": self.merge_sha,
-                    "body": "## Allowlist\n- docs/**\n",
+                    "body": self.body,
                     "user": {"login": "octo-author"},
                     "base": {"ref": "main", "sha": BASE, "repo": {"id": 9, "private": False}},
                     "head": {"ref": "feature/docs", "sha": sha},
@@ -88,15 +90,20 @@ class CLIFixtureTransport:
         return self.response({}, 404)
 
 
-def _run_check(tmp_path: Path, monkeypatch, policy: dict, transport: CLIFixtureTransport):
+def _run_check(
+    tmp_path: Path,
+    monkeypatch,
+    policy: dict,
+    transport: CLIFixtureTransport,
+    declaration_text: str | None = None,
+):
     policy_path = tmp_path / "policy.json"
     receipt_path = tmp_path / "receipt.json"
     policy_path.write_text(json.dumps(policy), encoding="utf-8")
     monkeypatch.setenv("GITHUB_TOKEN", "credential-sentinel")
     stdout = io.StringIO()
     stderr = io.StringIO()
-    code = main(
-        [
+    args = [
             "check",
             "--repo",
             "example-org/example-repo",
@@ -106,7 +113,13 @@ def _run_check(tmp_path: Path, monkeypatch, policy: dict, transport: CLIFixtureT
             str(policy_path),
             "--receipt",
             str(receipt_path),
-        ],
+        ]
+    if declaration_text is not None:
+        declaration_path = tmp_path / "declaration.txt"
+        declaration_path.write_text(declaration_text, encoding="utf-8")
+        args.extend(["--declaration", str(declaration_path)])
+    code = main(
+        args,
         transport=transport,
         source_commit=SOURCE_COMMIT,
         stdout=stdout,
@@ -245,6 +258,21 @@ def test_pristine_clone_records_its_known_commit(tmp_path):
     assert resolved.returncode == 0
     assert resolved.stderr == ""
     assert resolved.stdout.strip() == expected
+
+
+@pytest.mark.parametrize(
+    "schema_name",
+    [contract_module.RECEIPT_SCHEMA_FILE, contract_module.POLICY_SCHEMA_FILE],
+)
+def test_modified_checkout_schema_cannot_claim_the_installed_head(tmp_path, schema_name):
+    clone = tmp_path / "proof-check-clone"
+    subprocess.run(["git", "clone", "--quiet", "--no-local", str(REPO_ROOT), str(clone)], check=True)
+    expected = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=clone, check=True, capture_output=True, text=True
+    ).stdout.strip()
+    python = _install_source(clone, tmp_path / "venv")
+    (clone / "schemas" / schema_name).write_text('{"type":"object"}\n', encoding="utf-8")
+    _assert_installed_source_is_refused(python, tmp_path, expected, tmp_path)
 
 
 def test_check_exit_matrix_and_receipt_output(tmp_path, monkeypatch):
@@ -553,12 +581,50 @@ def test_offline_bundle_rejects_widened_redigested_allowed_entries(tmp_path):
     assert "allowed_entries do not match" in stdout.getvalue()
 
 
+@pytest.mark.parametrize(
+    ("source", "body", "declaration_text", "bundle_declaration"),
+    [
+        ("pr_body_allowlist", None, None, None),
+        ("pinned:" + "0" * 64, "unused", "docs/**\n", "docs/**\n"),
+        ("pr_body_allowlist", "No allowlist here\n", None, "No allowlist here\n"),
+        ("file:SCOPE.txt", "unused", None, None),
+    ],
+)
+def test_offline_bundle_accepts_genuine_indeterminate_receipts(
+    tmp_path, monkeypatch, source, body, declaration_text, bundle_declaration
+):
+    policy = _policy([])
+    policy["scope"] = {
+        "source": source,
+        "trust": "advisory" if source == "pr_body_allowlist" else "blocking",
+    }
+    code, receipt_path, _stdout, _stderr = _run_check(
+        tmp_path, monkeypatch, policy, CLIFixtureTransport(body=body), declaration_text
+    )
+    assert code == 20
+    assert json.loads(receipt_path.read_bytes())["verdict"] == "INDETERMINATE"
+
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "policy.json").write_text(json.dumps(policy), encoding="utf-8")
+    if bundle_declaration is not None:
+        (bundle / "declaration.txt").write_text(bundle_declaration, encoding="utf-8")
+    stdout = io.StringIO()
+    assert main(
+        ["verify", str(receipt_path), "--offline-bundle", str(bundle)],
+        stdout=stdout,
+        stderr=io.StringIO(),
+    ) == 0
+    assert "VERIFIED" in stdout.getvalue()
+
+
 def test_online_verify_reports_differences_without_changing_exit(tmp_path, monkeypatch):
     code, receipt_path, _stdout, _stderr = _run_check(
         tmp_path, monkeypatch, _policy(["docs/**"]), CLIFixtureTransport()
     )
     assert code == 0
     original_receipt = receipt_path.read_bytes()
+    original_stat = receipt_path.stat()
     writes = 0
     original_write_bytes = Path.write_bytes
 
@@ -582,6 +648,8 @@ def test_online_verify_reports_differences_without_changing_exit(tmp_path, monke
     assert "- COORDINATE_DRIFT:" in output
     assert writes == 0
     assert receipt_path.read_bytes() == original_receipt
+    verified_stat = receipt_path.stat()
+    assert (verified_stat.st_ino, verified_stat.st_mtime_ns) == (original_stat.st_ino, original_stat.st_mtime_ns)
 
 
 def test_unexpected_transport_error_is_redacted(tmp_path, monkeypatch):

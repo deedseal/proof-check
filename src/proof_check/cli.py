@@ -96,7 +96,11 @@ def _read_text(path: Path, label: str) -> str:
         raise ValueError(f"{label} is unreadable UTF-8: {path}") from error
 
 
-def _git_commit(directory: Path, package_directory: Path | None = None) -> str | None:
+def _git_commit(
+    directory: Path,
+    package_directory: Path | None = None,
+    schema_directory: Path | None = None,
+) -> str | None:
     installed = Path(__file__).resolve().parent
     package_source = installed if package_directory is None else package_directory.resolve()
     try:
@@ -113,8 +117,14 @@ def _git_commit(directory: Path, package_directory: Path | None = None) -> str |
         installed_files = sorted(installed.glob("*.py"))
         if not installed_files:
             return None
-        for installed_file in installed_files:
-            tracked_file = package_source / installed_file.name
+        compared_files = [(installed_file, package_source / installed_file.name) for installed_file in installed_files]
+        if schema_directory is not None:
+            schema_source = schema_directory.resolve()
+            compared_files.extend(
+                (schema_source / name, schema_source / name)
+                for name in (contract_module.RECEIPT_SCHEMA_FILE, contract_module.POLICY_SCHEMA_FILE)
+            )
+        for running_file, tracked_file in compared_files:
             relative = tracked_file.relative_to(root).as_posix()
             subprocess.run(
                 ["git", "-C", str(root), "ls-files", "--error-unmatch", "--", relative],
@@ -126,7 +136,7 @@ def _git_commit(directory: Path, package_directory: Path | None = None) -> str |
                 check=True,
                 capture_output=True,
             ).stdout
-            if installed_file.read_bytes() != committed:
+            if running_file.read_bytes() != committed:
                 return None
     except (OSError, ValueError, subprocess.CalledProcessError):
         return None
@@ -154,11 +164,6 @@ def _direct_url_commit() -> str | None:
     document = _direct_url_document()
     if document is None:
         return None
-    vcs = document.get("vcs_info")
-    if isinstance(vcs, dict):
-        commit = vcs.get("commit_id")
-        if isinstance(commit, str) and _SHA_RE.fullmatch(commit.lower()):
-            return commit.lower()
     url = document.get("url")
     if isinstance(url, str):
         parsed = urllib.parse.urlsplit(url)
@@ -166,7 +171,12 @@ def _direct_url_commit() -> str | None:
             checkout = Path(urllib.parse.unquote(parsed.path))
             source = checkout / "src" / "proof_check"
             if source.is_dir():
-                return _git_commit(checkout, source)
+                return _git_commit(checkout, source, checkout / "schemas")
+    vcs = document.get("vcs_info")
+    if isinstance(vcs, dict):
+        commit = vcs.get("commit_id")
+        if isinstance(commit, str) and _SHA_RE.fullmatch(commit.lower()):
+            return commit.lower()
     return None
 
 
@@ -345,6 +355,7 @@ def _verify_bundle(receipt_bytes: bytes, bundle: Path) -> tuple[Any, list[str]]:
     findings = list(result.findings)
     declaration_path = bundle / "declaration.txt"
     declaration_text: str | None = None
+    declaration_digest_mismatch = False
     if declaration_path.exists() and result.receipt is not None:
         try:
             declaration = declaration_path.read_bytes()
@@ -355,13 +366,15 @@ def _verify_bundle(receipt_bytes: bytes, bundle: Path) -> tuple[Any, list[str]]:
         actual = sha256_hex(declaration)
         if recorded is None or actual != recorded:
             findings.append("declaration.txt digest does not match the receipt policy record")
+            declaration_digest_mismatch = True
     if result.receipt is not None:
         source_type = result.receipt.policy.source_type
         expected_entries: tuple[str, ...] | None = None
         scope = policy.get("scope")
         inline_entries = scope.get("entries") if isinstance(scope, dict) else None
+        recorded = result.receipt.policy.raw_sha256
         try:
-            if source_type is SourceType.NONE:
+            if recorded is None or source_type is SourceType.NONE:
                 expected_entries = ()
             elif source_type is SourceType.AUTHOR_PR_BODY:
                 if declaration_text is not None:
@@ -370,12 +383,21 @@ def _verify_bundle(receipt_bytes: bytes, bundle: Path) -> tuple[Any, list[str]]:
                 expected_entries = tuple(inline_entries)
             elif source_type in (SourceType.OWNER_PINNED_INPUT, SourceType.TRUSTED_BASE_MANIFEST):
                 if declaration_text is not None:
-                    expected_entries = parse_manifest(declaration_text)
-        except ScopeRefusal as error:
-            findings.append(f"bundle declaration is refused ({error.code})")
+                    source = scope.get("source") if isinstance(scope, dict) else None
+                    if (
+                        source_type is SourceType.OWNER_PINNED_INPUT
+                        and isinstance(source, str)
+                        and source.startswith("pinned:")
+                        and sha256_hex(declaration_text.encode("utf-8")) != source.removeprefix("pinned:")
+                    ):
+                        expected_entries = ()
+                    else:
+                        expected_entries = parse_manifest(declaration_text)
+        except ScopeRefusal:
+            expected_entries = ()
         if expected_entries is None:
             findings.append("bundle does not contain the declaration needed to derive allowed_entries")
-        elif expected_entries != result.receipt.policy.allowed_entries:
+        elif not declaration_digest_mismatch and expected_entries != result.receipt.policy.allowed_entries:
             findings.append("bundle declaration allowed_entries do not match the receipt policy record")
     return result, findings
 

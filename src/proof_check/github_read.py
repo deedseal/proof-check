@@ -170,6 +170,7 @@ class GitHubReader:
         self._prefix = _repository_api_prefix(repository)
         self._token = token
         self._transport = transport if transport is not None else UrllibTransport(repository)
+        self.last_response_headers: Mapping[str, str] = {}
 
     def get_json(self, path: str, query: Mapping[str, str | int] | None = None) -> Any:
         if path.startswith("/") or ".." in path.split("/"):
@@ -197,6 +198,7 @@ class GitHubReader:
             if response.status == 403:
                 raise GitHubAPIError("GITHUB_RATE_LIMIT_OR_FORBIDDEN")
             raise GitHubAPIError(f"GITHUB_HTTP_{response.status}")
+        self.last_response_headers = response.headers
         try:
             return json.loads(response.body)
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -254,6 +256,11 @@ def _utc_now(clock: Callable[[], datetime] | None) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _has_next_page(headers: Mapping[str, str]) -> bool:
+    link = next((value for name, value in headers.items() if name.lower() == "link"), "")
+    return any('rel="next"' in part for part in link.split(","))
 
 
 def _pull_coordinates(document: Any, repository: str, pr_number: int, target: TargetKind) -> tuple[Subject, str | None, str, bool]:
@@ -376,10 +383,10 @@ def _collect_checks(reader: GitHubReader, sha: str) -> tuple[tuple[CheckObservat
             break
         if len(items) < _PAGE_SIZE:
             break
+        if total is not None and len(records) >= total:
+            break
         if page == _PAGE_CEILING:
             errors.append("CHECK_RUNS_PAGINATION_LIMIT")
-            break
-        if total is not None and len(records) >= total:
             break
         page += 1
     if total is not None and len(records) != total:
@@ -398,6 +405,7 @@ def _collect_reviews(reader: GitHubReader, pr_number: int) -> tuple[tuple[Review
                 reader.get_json(f"pulls/{pr_number}/reviews", {"per_page": _PAGE_SIZE, "page": page}),
                 "REVIEWS_RESPONSE_INVALID",
             )
+            has_next_page = _has_next_page(reader.last_response_headers)
             for item_value in items:
                 item = _object(item_value, "REVIEW_INVALID")
                 user = _object(item.get("user"), "REVIEW_USER_MISSING")
@@ -421,7 +429,8 @@ def _collect_reviews(reader: GitHubReader, pr_number: int) -> tuple[tuple[Review
         if len(items) < _PAGE_SIZE:
             break
         if page == _PAGE_CEILING:
-            errors.append("REVIEWS_PAGINATION_LIMIT")
+            if has_next_page:
+                errors.append("REVIEWS_PAGINATION_LIMIT")
             break
         page += 1
     return tuple(records), tuple(errors)
