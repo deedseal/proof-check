@@ -15,7 +15,7 @@ if [[ -n "$action_ref" ]]; then
   source_commit="$action_ref"
 else
   # A repository-local `uses: ./` does not provide GITHUB_ACTION_REF. It may
-  # use GITHUB_SHA only when GitHub identifies no remote action repository and
+  # use the checked-out source commit only when GitHub identifies no remote action repository and
   # the action directory is exactly the workflow workspace.
   [[ -z "${GITHUB_ACTION_REPOSITORY:-}" ]] || \
     refuse "action reference must be a full 40-hex commit; tags and branches are not pins"
@@ -24,7 +24,7 @@ else
   workspace="$(cd "${GITHUB_WORKSPACE:-/nonexistent}" 2>/dev/null && pwd -P)" || \
     refuse "workflow workspace is unavailable"
   [[ "$action_path" == "$workspace" ]] || refuse "local action path must equal the workflow workspace"
-  source_commit="${GITHUB_SHA:-}"
+  source_commit="$(git -C "$action_path" rev-parse HEAD)"
 fi
 
 [[ "$source_commit" =~ ^[0-9a-fA-F]{40}$ ]] || \
@@ -54,6 +54,7 @@ if [[ "${GITHUB_EVENT_NAME:-}" == "merge_group" || "$target" == "merge_group" ]]
   refuse "merge_group target requires GitHub event context"
 fi
 [[ "$target" == "head" || "$target" == "test_merge" ]] || refuse "target must be head or test_merge"
+[[ ! -e "$receipt" ]] || refuse "receipt output already exists"
 
 temporary_root="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/proof-check.XXXXXX")"
 trap 'rm -rf -- "$temporary_root"' EXIT
@@ -106,11 +107,25 @@ source = document.get("tool", {}).get("source_commit", "")
 print(verdict if isinstance(verdict, str) else "")
 print(", ".join(reasons) if isinstance(reasons, list) and all(isinstance(x, str) for x in reasons) else "")
 print(source if isinstance(source, str) else "")
+print(document.get("subject", {}).get("head_sha", ""))
 ' "$receipt" 2>/dev/null || true)"
   mapfile -t fields <<< "$receipt_fields"
   verdict="${fields[0]:-}"
   reason_codes="${fields[1]:-}"
   receipt_source="${fields[2]:-}"
+  receipt_head="${fields[3]:-}"
+fi
+
+# The receipt verdict, not an optional CLI exit-policy override, controls green.
+case "$verdict" in
+  PASS) [[ "$exit_code" == 0 ]] || exit_code=2 ;;
+  FAIL) exit_code=10 ;;
+  INDETERMINATE) exit_code=20 ;;
+  *) exit_code=2 ;;
+esac
+if [[ -n "${PROOF_CHECK_EXPECTED_HEAD:-}" && "${receipt_head:-}" != "$PROOF_CHECK_EXPECTED_HEAD" ]]; then
+  printf 'REFUSED: receipt head does not match the PR event head\n' >&2
+  exit_code=20
 fi
 
 output_file="${GITHUB_OUTPUT:-/dev/null}"

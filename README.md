@@ -91,7 +91,7 @@ Pin the Action to the full 40-character commit you reviewed. Give the workflow t
     receipt: proof-check-receipt.json
 ```
 
-Retain the receipt from the runner log or a later read-only step if you need to replay it. The Action does not upload an artifact or write to the pull request.
+The Action uploads the receipt as a workflow artifact, including on refusal. The repository's `Proof Check` workflow also uploads the policy and declaration as an offline bundle and runs `proof-check verify`. A non-PASS receipt fails the job even if the policy opts out of the CLI's nonzero exit. The job evaluates the PR head and refuses a receipt bound to a different event head. Making this job required for merge remains a repository-protection setting; a red optional check alone does not prohibit merging.
 
 ## Permissions
 

@@ -74,9 +74,20 @@
           "PROOF_CHECK_DECLARATION": "${{ inputs.declaration }}",
           "PROOF_CHECK_PR": "${{ inputs.pr }}",
           "PROOF_CHECK_REPO": "${{ inputs.repo }}",
+          "PROOF_CHECK_EXPECTED_HEAD": "${{ github.event.pull_request.head.sha }}",
           "PROOF_CHECK_GITHUB_TOKEN": "${{ inputs.token }}"
         },
         "run": "bash \"${GITHUB_ACTION_PATH}/action/run.sh\""
+      },
+      {
+        "name": "Upload Proof Check receipt",
+        "if": "${{ always() }}",
+        "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "with": {
+          "name": "proof-check-receipt-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}",
+          "path": "${{ inputs.receipt }}",
+          "if-no-files-found": "error"
+        }
       }
     ]
   }

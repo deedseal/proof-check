@@ -1,0 +1,51 @@
+name: Proof Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+
+jobs:
+  proof-check:
+    name: Proof Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Prepare offline bundle
+        shell: bash
+        run: |
+          mkdir proof-check-bundle
+          cp examples/action/policy.json proof-check-bundle/policy.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          Path('proof-check-bundle/declaration.txt').write_bytes(
+              (event['pull_request']['body'] or '').encode('utf-8'))
+          PY
+      - name: Evaluate PR head
+        uses: ./
+        with:
+          policy: proof-check-bundle/policy.json
+          receipt: proof-check-bundle/receipt.json
+      - name: Verify receipt offline
+        if: ${{ always() && hashFiles('proof-check-bundle/receipt.json') != '' }}
+        shell: bash
+        run: |
+          python3 -m pip install .
+          proof-check verify proof-check-bundle/receipt.json --offline-bundle proof-check-bundle
+      - name: Upload offline bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proof-check-offline-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof-check-bundle/
+          if-no-files-found: error

@@ -36,11 +36,12 @@ import json, os, pathlib, sys
 args = sys.argv[1:]
 receipt = pathlib.Path(args[args.index("--receipt") + 1])
 code = int(os.environ["FAKE_EXIT_CODE"])
-verdict = {{0: "PASS", 10: "FAIL", 20: "INDETERMINATE", 2: "INDETERMINATE"}}[code]
+verdict = os.environ.get("FAKE_VERDICT") or {{0: "PASS", 10: "FAIL", 20: "INDETERMINATE", 2: "INDETERMINATE"}}[code]
 document = {{
     "verdict": verdict,
     "reason_codes": [] if code == 0 else ["EVIDENCE_MISSING"],
     "tool": {{"source_commit": os.environ["FAKE_SOURCE_COMMIT"]}},
+    "subject": {{"head_sha": os.environ["FAKE_SOURCE_COMMIT"]}},
 }}
 receipt.write_bytes(json.dumps(document, separators=(",", ":")).encode())
 print(f"{{verdict}}: fixture")
@@ -81,7 +82,7 @@ fi
     return tools
 
 
-def _run(tmp_path: Path, *, exit_code: int = 0, ref: str = PIN, pr: str = "7", event: str = "pull_request"):
+def _run(tmp_path: Path, *, exit_code: int = 0, ref: str = PIN, pr: str = "7", event: str = "pull_request", overrides=None):
     tools = _fake_tools(tmp_path)
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -116,6 +117,7 @@ def _run(tmp_path: Path, *, exit_code: int = 0, ref: str = PIN, pr: str = "7", e
             "PROOF_CHECK_GITHUB_TOKEN": TOKEN,
         }
     )
+    environment.update(overrides or {})
     result = subprocess.run(
         ["bash", str(RUNNER)], cwd=workspace, env=environment, capture_output=True, text=True
     )
@@ -141,7 +143,7 @@ def test_empty_pull_request_is_refused_before_clone(tmp_path):
     assert not git_log.exists()
 
 
-@pytest.mark.parametrize(("exit_code", "verdict"), [(0, "PASS"), (10, "FAIL"), (20, "INDETERMINATE"), (2, "INDETERMINATE")])
+@pytest.mark.parametrize(("exit_code", "verdict"), [(0, "PASS"), (10, "FAIL"), (20, "INDETERMINATE")])
 def test_cli_exit_and_receipt_outputs_are_preserved(tmp_path, exit_code, verdict):
     result, workspace, output, summary, _git_log = _run(tmp_path, exit_code=exit_code)
     receipt = workspace / "proof-check-receipt.json"
@@ -164,10 +166,30 @@ def test_repository_local_action_uses_the_workflow_sha(tmp_path):
     assert _outputs(output)["verdict"] == "PASS"
 
 
+@pytest.mark.parametrize("verdict", ["FAIL", "INDETERMINATE"])
+def test_zero_cli_exit_cannot_override_nonpass_verdict(tmp_path, verdict):
+    result, *_ = _run(tmp_path, overrides={"FAKE_VERDICT": verdict})
+    assert result.returncode == {"FAIL": 10, "INDETERMINATE": 20}[verdict]
+
+
+def test_receipt_for_a_different_event_head_is_refused(tmp_path):
+    result, *_ = _run(tmp_path, overrides={"PROOF_CHECK_EXPECTED_HEAD": "b" * 40})
+    assert result.returncode == 20
+    assert "does not match the PR event head" in result.stderr
+
+
+def test_receipt_for_event_head_is_admitted(tmp_path):
+    result, *_ = _run(tmp_path, overrides={"PROOF_CHECK_EXPECTED_HEAD": PIN})
+    assert result.returncode == 0
+
+
 def test_action_metadata_policy_and_workflow_contract():
     metadata = json.loads((REPO_ROOT / "action.yml").read_text(encoding="utf-8"))
     assert metadata["runs"]["using"] == "composite"
-    assert len(metadata["runs"]["steps"]) == 1
+    assert len(metadata["runs"]["steps"]) == 2
+    upload = metadata["runs"]["steps"][1]
+    assert upload["if"] == "${{ always() }}"
+    assert upload["with"]["if-no-files-found"] == "error"
     assert metadata["runs"]["steps"][0]["run"] == 'bash "${GITHUB_ACTION_PATH}/action/run.sh"'
     assert set(metadata["inputs"]) == {"policy", "receipt", "target", "declaration", "pr", "repo", "token"}
     assert set(metadata["outputs"]) == {"verdict", "exit-code", "receipt-path", "receipt-digest"}
