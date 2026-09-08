@@ -99,8 +99,8 @@ def _run(tmp_path: Path, *, exit_code: int = 0, ref: str = PIN, pr: str = "7", e
             "FAKE_GIT_LOG": str(git_log),
             "FAKE_SOURCE_COMMIT": PIN,
             "FAKE_EXIT_CODE": str(exit_code),
-            "GITHUB_ACTION_REF": ref,
-            "GITHUB_ACTION_REPOSITORY": "deedseal/proof-check" if ref else "",
+            "PROOF_CHECK_ACTION_REF": ref,
+            "PROOF_CHECK_ACTION_REPOSITORY": "deedseal/proof-check" if ref else "",
             "GITHUB_ACTION_PATH": str(workspace),
             "GITHUB_WORKSPACE": str(workspace),
             "GITHUB_SHA": PIN,
@@ -166,6 +166,29 @@ def test_repository_local_action_uses_the_workflow_sha(tmp_path):
     assert _outputs(output)["verdict"] == "PASS"
 
 
+def test_remote_action_uses_explicit_context_despite_runner_reserved_env(tmp_path):
+    remote = tmp_path / "remote-action"
+    remote.mkdir()
+    result, _workspace, output, _summary, git_log = _run(tmp_path, overrides={
+        "GITHUB_ACTION_REF": "",
+        "GITHUB_ACTION_REPOSITORY": "",
+        "GITHUB_ACTION_PATH": str(remote),
+    })
+    assert result.returncode == 0
+    assert _outputs(output)["verdict"] == "PASS"
+    assert f"origin {PIN}" in git_log.read_text()
+
+
+def test_remote_action_without_explicit_pin_cannot_fall_back_to_workspace(tmp_path):
+    result, _workspace, _output, _summary, git_log = _run(tmp_path, ref="", overrides={
+        "PROOF_CHECK_ACTION_REPOSITORY": "deedseal/proof-check",
+        "GITHUB_ACTION_REF": PIN,
+    })
+    assert result.returncode == 2
+    assert "full 40-hex commit" in result.stderr
+    assert not git_log.exists()
+
+
 @pytest.mark.parametrize("verdict", ["FAIL", "INDETERMINATE"])
 def test_zero_cli_exit_cannot_override_nonpass_verdict(tmp_path, verdict):
     result, *_ = _run(tmp_path, overrides={"FAKE_VERDICT": verdict})
@@ -186,6 +209,10 @@ def test_receipt_for_event_head_is_admitted(tmp_path):
 def test_action_metadata_policy_and_workflow_contract():
     metadata = json.loads((REPO_ROOT / "action.yml").read_text(encoding="utf-8"))
     assert metadata["runs"]["using"] == "composite"
+    environment = metadata["runs"]["steps"][0]["env"]
+    assert environment["PROOF_CHECK_ACTION_REF"] == "${{ github.action_ref }}"
+    assert environment["PROOF_CHECK_ACTION_REPOSITORY"] == "${{ github.action_repository }}"
+    assert not any(key.startswith("GITHUB_") for key in environment)
     assert len(metadata["runs"]["steps"]) == 2
     upload = metadata["runs"]["steps"][1]
     assert upload["if"] == "${{ always() }}"

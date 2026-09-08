@@ -66,8 +66,8 @@
         "id": "proof-check",
         "shell": "bash",
         "env": {
-          "GITHUB_ACTION_REF": "${{ github.action_ref }}",
-          "GITHUB_ACTION_REPOSITORY": "${{ github.action_repository }}",
+          "PROOF_CHECK_ACTION_REF": "${{ github.action_ref }}",
+          "PROOF_CHECK_ACTION_REPOSITORY": "${{ github.action_repository }}",
           "PROOF_CHECK_POLICY": "${{ inputs.policy }}",
           "PROOF_CHECK_RECEIPT": "${{ inputs.receipt }}",
           "PROOF_CHECK_TARGET": "${{ inputs.target }}",
