@@ -2,7 +2,7 @@ name: Claude Review
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, ready_for_review]
 
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   review:
-    name: Claude Review (Sonnet 5)
+    name: Claude Review (opened head)
     if: >-
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository
@@ -31,6 +31,7 @@ jobs:
           persist-credentials: false
 
       - name: Review exact PR head
+        id: review
         uses: anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -46,3 +47,10 @@ jobs:
           include_fix_links: false
           show_full_output: false
           display_report: false
+
+      - name: Require successful reviewer execution
+        if: ${{ always() && steps.review.outputs.conclusion != 'success' }}
+        shell: bash
+        run: |
+          echo "::error::Claude review did not complete successfully (skipped, failed, or missing conclusion)."
+          exit 1
