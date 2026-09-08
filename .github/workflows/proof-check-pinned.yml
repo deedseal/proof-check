@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: deedseal/proof-check
-          ref: 201bac98ac95bd173e6132510a3de3f7af064610
+          ref: ea1536eda18fc59a36c3b08edaa93b2ecee111dd
           path: trusted
           persist-credentials: false
       - name: Prepare offline bundle
@@ -42,7 +42,7 @@ jobs:
               (event['pull_request']['body'] or '').encode('utf-8'))
           PY
       - name: Evaluate exact PR head with candidate checker
-        uses: deedseal/proof-check@201bac98ac95bd173e6132510a3de3f7af064610
+        uses: deedseal/proof-check@ea1536eda18fc59a36c3b08edaa93b2ecee111dd
         with:
           policy: proof-check-bundle/policy.json
           declaration: proof-check-bundle/declaration.txt
