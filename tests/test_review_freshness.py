@@ -30,7 +30,9 @@ def _load(name: str):
 
 
 class FixtureTransport:
-    def __init__(self, pages=None, *, status=200):
+    def __init__(self, pages=None, *, status=200, modified=False, missing_ref=None):
+        self.modified = modified
+        self.missing_ref = missing_ref
         self.pages = pages if pages is not None else {1: []}
         self.status = status
         self.calls = []
@@ -38,6 +40,12 @@ class FixtureTransport:
     def request(self, url: str, token: str):
         self.calls.append(url)
         path = urlsplit(url).path
+        if path.endswith("/contents/.github/workflows/claude-review.yml"):
+            ref = parse_qs(urlsplit(url).query)["ref"][0]
+            if ref == self.missing_ref:
+                return CHECK.Response(404, {}, b"{}")
+            blob = "b" * 40 if self.modified and ref == HEAD else "a" * 40
+            return CHECK.Response(200, {}, json.dumps({"type": "file", "sha": blob}).encode())
         if path.endswith(f"/pulls/{PR_NUMBER}"):
             return CHECK.Response(200, {}, json.dumps({"head": {"sha": HEAD, "ref": "work/n21"}}).encode())
         if path.endswith("/actions/workflows/claude-review.yml/runs"):
@@ -101,6 +109,21 @@ def test_t3_successful_run_on_head_is_fresh():
     assert result["decision"] == "FRESH"
     assert result["reason"] is None
     assert result["matched_run_id"] == 77
+
+
+@pytest.mark.parametrize("modified", [False, True])
+def test_t5_t6_reviewer_blob_binding(modified):
+    result, transport = _run([_run_record()], modified=modified)
+    calls = [url for url in transport.calls if "/contents/" in url]
+    assert [parse_qs(urlsplit(url).query)["ref"][0] for url in calls] == [HEAD, "main"]
+    assert result["decision"] == ("STALE" if modified else "FRESH")
+    assert result["reason"] == ("REVIEWER_WORKFLOW_MODIFIED" if modified else None)
+
+
+@pytest.mark.parametrize("missing_ref", [HEAD, "main"])
+def test_t7_missing_reviewer_blob_fails_closed(missing_ref):
+    result, _ = _run([_run_record()], missing_ref=missing_ref)
+    assert (result["decision"], result["reason"]) == ("STALE", "API_ERROR")
 
 
 def test_t4_forged_comment_cannot_supply_evidence():
