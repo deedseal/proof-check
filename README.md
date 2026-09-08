@@ -1,10 +1,10 @@
 # Proof Check
 
-**Status: not released.** There is no Action or packaged release to install. The CLI can be installed locally from a source commit; the public contract remains the authority for its verdict semantics, receipt and policy schemas, fixture plan, and claims boundary. Code follows the contract, not the other way round.
+**Status: released as [v0.1.1](https://github.com/deedseal/proof-check/releases/tag/v0.1.1).** The Action wrapper is pinned at `363aad91142a01df6e5d72a87495d2f09be28823`. `v0.1.0` is superseded and must not be used from another repository. Later changes on `main` add repository review workflows and their supporting tools and tests; the released Action code is unchanged. The public contract remains the authority for verdict semantics, receipt and policy schemas, fixture plan, and claims boundary. Code follows the contract, not the other way round.
 
 ## What it is
 
-Proof Check is a proposed free GitHub Action and CLI that checks whether one pull request's declared evidence still coheres around its current head, explains any gap, and produces a receipt another person can verify.
+Proof Check is a free GitHub Action and CLI that checks whether one pull request's declared evidence still coheres around its current head, explains any gap, and produces a receipt another person can verify.
 
 Category: PR evidence-coherence check with a portable verification receipt.
 
@@ -23,7 +23,7 @@ Every verdict comes with a plain-language explanation and a JSON receipt: what w
 - It does not decide whether code is correct, valuable, compliant, approved, or ready to merge.
 - It does not replace GitHub checks, reviews, branch protections, releases, or attestations. Stale-approval dismissal, required checks, up-to-date branches and merge queues are GitHub's; Proof Check does not re-implement them.
 - A receipt is not certification, and it does not remove trust in GitHub, repository permissions, the evaluated inputs, the runner, or the reader's chosen verifier.
-- No code upload, no backend, no account. It reads public GitHub data with read-only permissions inside your own workflow or on your own machine.
+- No code upload, no backend, no account. It reads GitHub data with read-only permissions inside your own workflow or on your own machine.
 
 The full boundary is in [`docs/contract/claims-and-nonclaims.md`](docs/contract/claims-and-nonclaims.md) and [`SECURITY.md`](SECURITY.md).
 
@@ -38,14 +38,162 @@ The full boundary is in [`docs/contract/claims-and-nonclaims.md`](docs/contract/
 | [`schemas/proof-check-policy.v1.schema.json`](schemas/proof-check-policy.v1.schema.json) | `proof-check-policy/v1`, including the declared-scope entry grammar. |
 | [`fixtures/README.md`](fixtures/README.md) | The public fixture contract, the hostile corpus plan, and the acceptance bar: zero incorrect `PASS`. |
 
-## Install
+## GitHub Action
 
-Choose the full 40-character commit you reviewed, then install that checkout. A branch name is not a pin.
+The Marketplace's "Use latest version" snippet supplies `@v0.1.1`. The Action refuses tags and branches with exit `2` and the message `action reference must be a full 40-hex commit; tags and branches are not pins`. Use `uses: deedseal/proof-check@363aad91142a01df6e5d72a87495d2f09be28823` instead.
+
+### Consumer workflow
+
+Save this as `.github/workflows/proof-check.yml` in your repository. It follows this repository's [bundle workflow](.github/workflows/proof-check.yml), with the remote Action and the separate verifier checkout pinned to the release. It reads the PR checkout as data and installs the verifier from the pinned `trusted` checkout.
+
+```yaml
+name: Proof Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  "statuses": read
+
+jobs:
+  proof-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the PR head as data
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: subject
+          persist-credentials: false
+      - name: Check out the released offline verifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: deedseal/proof-check
+          ref: 363aad91142a01df6e5d72a87495d2f09be28823 # v0.1.1
+          path: trusted
+          persist-credentials: false
+      - name: Prepare offline bundle
+        shell: bash
+        run: |
+          mkdir proof-check-bundle
+          cp subject/examples/action/policy.json proof-check-bundle/policy.json
+          python3 - <<'PY_BODY'
+          import json, os
+          from pathlib import Path
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          Path('proof-check-bundle/declaration.txt').write_bytes(
+              (event['pull_request']['body'] or '').encode('utf-8'))
+          PY_BODY
+      - name: Evaluate the PR head
+        uses: deedseal/proof-check@363aad91142a01df6e5d72a87495d2f09be28823 # v0.1.1
+        with:
+          policy: proof-check-bundle/policy.json
+          declaration: proof-check-bundle/declaration.txt
+          receipt: proof-check-bundle/receipt.json
+          target: head
+      - name: Verify receipt offline
+        if: ${{ always() && hashFiles('proof-check-bundle/receipt.json') != '' }}
+        shell: bash
+        run: |
+          python3 -m venv "$RUNNER_TEMP/proof-check-verify"
+          "$RUNNER_TEMP/proof-check-verify/bin/python" -m pip install ./trusted
+          "$RUNNER_TEMP/proof-check-verify/bin/proof-check" verify \
+            proof-check-bundle/receipt.json --offline-bundle proof-check-bundle
+      - name: Upload offline bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proof-check-offline-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof-check-bundle/
+          if-no-files-found: error
+```
+
+The workflow uses read-only `contents`, `pull-requests`, `checks`, and `statuses` permissions. The Action uploads its receipt when one exists, including a non-PASS receipt; the workflow also uploads the policy and PR declaration for offline verification. Invalid configuration can fail before a receipt exists. A `FAIL` or `INDETERMINATE` receipt makes the Action step red, including when the CLI policy opts out of a nonzero exit for `INDETERMINATE`. The Action refuses a receipt whose head differs from the PR event head.
+
+This is a `pull_request` workflow: the PR can change its workflow and policy. A PR-body declaration is advisory. Making checks required for merge and restricting who can change their workflows require repository-protection settings; a red optional check alone does not prohibit merging. Proof Check does not create those settings or enforce review freshness.
+
+### Policy file
+
+Save this as `examples/action/policy.json` in your repository; the workflow copies it into the offline bundle.
+
+```json
+{
+  "schema_version": "proof-check-policy/v1",
+  "scope": {
+    "source": "pr_body_allowlist",
+    "trust": "advisory"
+  },
+  "checks": {
+    "required_selectors": []
+  },
+  "reviews": {
+    "policy": "report_only"
+  },
+  "verdict_policy": {
+    "fail_exit": 10,
+    "indeterminate_exit": 20
+  },
+  "receipt": {
+    "mode": "always"
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `schema_version` | Selects the `proof-check-policy/v1` schema. |
+| `scope.source` | Reads the PR body's `## Allowlist` section. |
+| `scope.trust` | Labels that author-controlled declaration as `advisory`. |
+| `checks.required_selectors` | The empty list configures no required check selectors. |
+| `reviews.policy` | `report_only` records review context without applying a review rule. |
+| `verdict_policy.fail_exit` | Sets the CLI's `FAIL` exit code to `10`. |
+| `verdict_policy.indeterminate_exit` | Sets the CLI's `INDETERMINATE` exit code to `20`. |
+| `receipt.mode` | `always` requests a receipt for every evaluated verdict. |
+
+### PR declaration
+
+The PR body must contain exactly one `## Allowlist` section, with one repository-relative path or glob per bullet. For a change that adds the workflow and policy above and edits the README, copy this into the PR body and adjust the paths to the intended scope:
+
+```markdown
+## Allowlist
+- .github/workflows/proof-check.yml
+- examples/action/policy.json
+- README.md
+```
+
+From the [policy schema](schemas/proof-check-policy.v1.schema.json), verbatim:
+
+> Declared-scope entry grammar, adopted verbatim from prior art proven in production CI: one entry per line under a single '## Allowlist' markdown section when the source is a PR body (exactly one such section; zero or duplicates fail CLOSED); each entry is an exact repository-relative path, an fnmatch glob, or a directory prefix ending in '/**'. Fail-closed grammar refusals: bare '*' or '**'; a leading '/'; '..' path traversal; an empty prefix before '/**'; any entry broad enough to swallow the universal improbable probe path (checked at runtime). No section, an empty section, or an out-of-list path all fail CLOSED. Author-controlled declarations remain advisory even when frozen and hashed.
+
+From the [fixture contract](fixtures/README.md), verbatim:
+
+> Scope: the path-scope `FAIL` vector; a sanitized README-only `PASS` twin; a rename whose old or new path escapes, `FAIL` / `SCOPE_ESCAPE`; a glob entry that lawfully covers the diff, `PASS`; an entry refused by the grammar (bare `*`, `..`, universal swallow, duplicate section, empty section), exit `2` or `INDETERMINATE` / `EVIDENCE_AMBIGUOUS`, never `PASS`.
+
+With the PR-body policy above, a missing, duplicate, empty, or malformed allowlist yields `INDETERMINATE` and a red Action step. A changed path outside a valid list yields `FAIL` with `SCOPE_ESCAPE`. Invalid policy configuration can instead stop with exit `2`. Keep the declaration narrow enough to name the intended change; do not add paths merely to hide a scope escape.
+
+### Verify the downloaded bundle
+
+Download and extract the `proof-check-offline-bundle-<run_id>-<run_attempt>` artifact into `proof-check-bundle`. With the CLI installed from the release commit (see below), run:
+
+```bash
+proof-check verify proof-check-bundle/receipt.json --offline-bundle proof-check-bundle
+```
+
+This checks the recorded receipt and bundled inputs without fetching current GitHub state; it does not establish that the PR is still at the recorded head.
+
+## Install the CLI from source
+
+Install from a full 40-character source commit. The commands below use the `v0.1.1` release commit; a branch name is not a pin.
 
 ```bash
 git clone https://github.com/deedseal/proof-check.git
 cd proof-check
-git checkout --detach <40-character-commit>
+git checkout --detach 363aad91142a01df6e5d72a87495d2f09be28823
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install .
@@ -79,23 +227,6 @@ Exit codes are `0` for `PASS` or a verified receipt, `10` for `FAIL`, `20` for `
 The CLI makes only `GET` requests beneath `https://api.github.com/repos/<owner>/<name>/`. Supply a token through the environment variable named by `--token-env` (default `GITHUB_TOKEN`) with read access to repository contents, pull requests, and checks. Token bytes are not placed in receipts, stdout, or stderr. The reader does not download or execute code from the inspected pull request; a `file:` policy reads only its named manifest from the base commit.
 
 There is no Deedseal account, backend, journal, or upload. GitHub receives the API requests needed to read the named pull request; the receipt is written on the user's machine. It contains repository coordinates, public handles, digests, and the verdict, but not email addresses, token bytes, source contents, or model prompts and responses. When the user checks a private repository, the locally written receipt discloses `subject.repository` (the private repository name), `head_ref`/`base_ref`, changed paths, check names, and reviewer handles. This deviates from `SECURITY.md`'s current private-metadata statement until the contract is amended; handle the receipt under the repository's own disclosure rules.
-
-## GitHub Action
-
-Pin the Action to the full 40-character commit you reviewed. Give the workflow the four read permissions below, name a `proof-check-policy/v1` policy, and run it on an existing pull request. The Action evaluates declared scope, checks, reviews, and the current head, then reports `PASS`, `FAIL`, or `INDETERMINATE` and writes a replayable JSON receipt.
-
-```yaml
-- uses: deedseal/proof-check@<40-character-commit>
-  with:
-    policy: proof-check-policy.json
-    receipt: proof-check-receipt.json
-```
-
-The Action uploads the receipt as a workflow artifact, including on refusal. The repository's `Proof Check` workflow also uploads the policy and declaration as an offline bundle and runs `proof-check verify`. A non-PASS receipt fails the job even if the policy opts out of the CLI's nonzero exit. The job evaluates the PR head and refuses a receipt bound to a different event head. Making this job required for merge remains a repository-protection setting; a red optional check alone does not prohibit merging.
-
-## Permissions
-
-The Action uses exactly `contents: read`, `pull-requests: read`, `checks: read`, `statuses: read`, and nothing else. It creates no workflow, check, comment, label, review, or merge.
 
 ## License
 
