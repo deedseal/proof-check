@@ -77,7 +77,7 @@ jobs:
               exit "$status"
             fi
             reason="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["reason"])' <<<"$result")"
-            if [[ "$WAIT_FOR_REVIEW" != "true" || "$reason" == "API_ERROR" || "$reason" == "RUN_NOT_SUCCESS" || $SECONDS -ge $deadline ]]; then
+            if [[ "$WAIT_FOR_REVIEW" != "true" || "$reason" == "API_ERROR" || "$reason" == "RUN_NOT_SUCCESS" || "$reason" == "REVIEWER_WORKFLOW_MODIFIED" || $SECONDS -ge $deadline ]]; then
               exit 10
             fi
             sleep 10
