@@ -55,6 +55,7 @@ class FixtureTransport:
         file_pages: dict[int, list[dict]] | None = None,
         check_pages: dict[int, dict] | None = None,
         review_pages: dict[int, list[dict]] | None = None,
+        review_headers: dict[int, dict[str, str]] | None = None,
     ):
         self.reported_count = reported_count
         self.readback_count = readback_count
@@ -66,6 +67,7 @@ class FixtureTransport:
         self.file_pages = file_pages or {1: _load("files-page-1.json"), 2: _load("files-page-2.json"), 3: _load("files-page-3.json")}
         self.check_pages = check_pages or {1: _load("check-runs-page-1.json")}
         self.review_pages = review_pages or {1: _load("reviews-page-1.json")}
+        self.review_headers = review_headers
 
     @staticmethod
     def response(value, status: int = 200, headers: dict[str, str] | None = None) -> HTTPResponse:
@@ -96,9 +98,12 @@ class FixtureTransport:
         if parsed.path.endswith("/pulls/42/reviews"):
             if self.review_status != 200:
                 return self.response({}, self.review_status)
-            headers = {}
-            if any(number > page and items for number, items in self.review_pages.items()):
-                headers["Link"] = f'<https://api.github.com/repositories/9/pulls/42/reviews?page={page + 1}>; rel="next"'
+            if self.review_headers is not None:
+                headers = self.review_headers.get(page, {})
+            else:
+                headers = {}
+                if any(number > page and items for number, items in self.review_pages.items()):
+                    headers["Link"] = f'<https://api.github.com/repositories/9/pulls/42/reviews?page={page + 1}>; rel="next"'
             return self.response(self.review_pages.get(page, []), headers=headers)
         return self.response({}, 404)
 
@@ -237,9 +242,24 @@ def test_checks_and_reviews_distinguish_complete_page_ceiling(total, verdict):
         ]
         for page in range(1, 31)
     }
+    review_headers = {
+        page: {
+            "Link": (
+                f'<https://api.github.com/repositories/9/pulls/42/reviews?page={page + 1}>; rel="next"'
+                if page < 30
+                else '<https://api.github.com/repositories/9/pulls/42/reviews?page=29>; rel="prev"'
+            )
+        }
+        for page in range(1, 31)
+    }
     if total == 3001:
         review_pages[31] = [{**review_item, "id": 3001}]
-    transport = FixtureTransport(check_pages=check_pages, review_pages=review_pages)
+        review_headers = {page: {} for page in range(1, 32)}
+    transport = FixtureTransport(
+        check_pages=check_pages,
+        review_pages=review_pages,
+        review_headers=review_headers,
+    )
     errors = []
     evidence = collect_evidence(
         "example-org/example-repo",
@@ -254,6 +274,7 @@ def test_checks_and_reviews_distinguish_complete_page_ceiling(total, verdict):
     review_urls = [url for _method, url in transport.calls if "/reviews?" in url]
     assert len(check_urls) == 30
     assert len(review_urls) == 30
+    assert len(evidence.reviews) == 3000
     assert evaluate(_policy(), evidence).verdict is verdict
     expected_errors = [] if total == 3000 else [
         "CHECK_RUNS_PAGINATION_LIMIT",

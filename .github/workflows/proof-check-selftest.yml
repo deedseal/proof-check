@@ -1,0 +1,27 @@
+name: Proof Check self-test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  statuses: read
+
+jobs:
+  proof-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Run Proof Check
+        uses: ./
+        with:
+          policy: examples/action/policy.json
+          receipt: proof-check-receipt.json
+      - name: Print receipt
+        if: always()
+        shell: bash
+        run: if [[ -f proof-check-receipt.json ]]; then python3 -m json.tool proof-check-receipt.json; fi
