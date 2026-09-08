@@ -96,53 +96,82 @@ jobs:
           from collections import Counter
           from pathlib import Path
 
-          diagnostics = {'available': False}
-          try:
-              source = Path(os.environ['CLAUDE_EXECUTION_FILE'])
-              messages = json.loads(source.read_text(encoding='utf-8'))
-              if not isinstance(messages, list):
-                  raise ValueError('Expected a message list')
-              result = next(
-                  message for message in reversed(messages)
-                  if isinstance(message, dict) and message.get('type') == 'result'
-              )
-              num_turns = result['num_turns']
-              duration_ms = result['duration_ms']
-              is_error = result['is_error']
-              subtype = result['subtype']
-              denials = result['permission_denials']
-              if (isinstance(num_turns, bool) or not isinstance(num_turns, int)
-                      or num_turns < 0):
-                  raise ValueError('Invalid turn count')
-              if (isinstance(duration_ms, bool) or not isinstance(duration_ms, int)
-                      or duration_ms < 0):
-                  raise ValueError('Invalid duration')
-              if not isinstance(is_error, bool):
-                  raise ValueError('Invalid error flag')
-              if (not isinstance(subtype, str)
-                      or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', subtype)):
-                  raise ValueError('Invalid subtype')
-              if not isinstance(denials, list):
-                  raise ValueError('Invalid denials')
-              counts = Counter()
-              for denial in denials:
-                  tool_name = denial.get('tool_name') if isinstance(denial, dict) else None
-                  if (not isinstance(tool_name, str)
-                          or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_.:-]{0,127}', tool_name)):
-                      raise ValueError('Invalid tool name')
-                  counts[tool_name] += 1
-              diagnostics = {
-                  'num_turns': num_turns,
-                  'duration_ms': duration_ms,
-                  'is_error': is_error,
-                  'subtype': subtype,
-                  'denials': [
-                      {'tool_name': tool_name, 'count': counts[tool_name]}
-                      for tool_name in sorted(counts)
-                  ],
-              }
-          except Exception:
-              pass
+          def unavailable(reason):
+              return {'available': False, 'reason': reason}
+
+          source_name = os.environ.get('CLAUDE_EXECUTION_FILE')
+          if not source_name:
+              diagnostics = unavailable('NO_FILE')
+          else:
+              try:
+                  raw = Path(source_name).read_bytes()
+              except (OSError, ValueError):
+                  diagnostics = unavailable('NO_FILE')
+              else:
+                  try:
+                      messages = json.loads(raw.decode('utf-8'))
+                  except (UnicodeDecodeError, json.JSONDecodeError):
+                      diagnostics = unavailable('UNPARSEABLE')
+                  else:
+                      if not isinstance(messages, list):
+                          diagnostics = unavailable('UNPARSEABLE')
+                      else:
+                          result = next(
+                              (message for message in reversed(messages)
+                               if isinstance(message, dict)
+                               and message.get('type') == 'result'),
+                              None,
+                          )
+                          if result is None:
+                              diagnostics = unavailable('NO_RESULT_MESSAGE')
+                          else:
+                              diagnostics = {}
+                              scalar_rules = {
+                                  'num_turns': lambda value: (
+                                      not isinstance(value, bool)
+                                      and isinstance(value, int) and value >= 0),
+                                  'duration_ms': lambda value: (
+                                      not isinstance(value, bool)
+                                      and isinstance(value, int) and value >= 0),
+                                  'is_error': lambda value: isinstance(value, bool),
+                                  'subtype': lambda value: (
+                                      isinstance(value, str)
+                                      and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', value)),
+                              }
+                              invalid_field = False
+                              for field, valid in scalar_rules.items():
+                                  value = result.get(field)
+                                  if valid(value):
+                                      diagnostics[field] = value
+                                  else:
+                                      diagnostics[field] = None
+                                      invalid_field = True
+
+                              counts = Counter()
+                              invalid_denial = False
+                              denials = result.get('permission_denials', [])
+                              if not isinstance(denials, list):
+                                  denials = [None]
+                              for denial in denials:
+                                  tool_name = (denial.get('tool_name')
+                                               if isinstance(denial, dict) else None)
+                                  if (not isinstance(tool_name, str)
+                                          or not re.fullmatch(
+                                              r'[A-Za-z][A-Za-z0-9_.:-]{0,127}',
+                                              tool_name)):
+                                      tool_name = '<invalid>'
+                                      invalid_denial = True
+                                  counts[tool_name] += 1
+                              diagnostics['denials'] = [
+                                  {'tool_name': tool_name, 'count': counts[tool_name]}
+                                  for tool_name in sorted(counts)
+                              ]
+                              if invalid_field or invalid_denial:
+                                  diagnostics.update(
+                                      available=False,
+                                      reason=('INVALID_FIELD' if invalid_field
+                                              else 'INVALID_DENIAL'),
+                                  )
 
           encoded = json.dumps(diagnostics, sort_keys=True, indent=2) + '\n'
           output = Path(os.environ['RUNNER_TEMP'], 'claude-review-diagnostics.json')

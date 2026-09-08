@@ -179,8 +179,15 @@ def run_diagnostics(tmp_path, execution):
     assert artifact_bytes in summary.read_text()
     diagnostics = json.loads(artifact_bytes)
     assert set(diagnostics) <= {
-        'available', 'num_turns', 'duration_ms', 'is_error', 'subtype', 'denials',
+        'available', 'reason', 'num_turns', 'duration_ms', 'is_error', 'subtype',
+        'denials',
     }
+    if 'reason' in diagnostics:
+        assert diagnostics['available'] is False
+        assert diagnostics['reason'] in {
+            'NO_FILE', 'UNPARSEABLE', 'NO_RESULT_MESSAGE',
+            'INVALID_FIELD', 'INVALID_DENIAL',
+        }
     for denial in diagnostics.get('denials', []):
         assert set(denial) == {'tool_name', 'count'}
     return result, diagnostics, artifact_bytes + summary.read_text()
@@ -231,11 +238,74 @@ def test_diagnostics_aggregates_denials_without_tool_inputs(tmp_path):
         assert forbidden not in emitted
 
 
-@pytest.mark.parametrize('execution', [None, '{not json'])
-def test_diagnostics_marks_missing_or_malformed_file_unavailable(tmp_path, execution):
+def test_diagnostics_treats_absent_permission_denials_as_empty(tmp_path):
+    execution = [
+        {'type': 'result', 'subtype': 'success', 'is_error': False,
+         'duration_ms': 50, 'num_turns': 2},
+    ]
     result, diagnostics, _ = run_diagnostics(tmp_path, execution)
     assert result.returncode == 0, result.stderr
-    assert diagnostics == {'available': False}
+    assert diagnostics == {
+        'duration_ms': 50, 'is_error': False, 'num_turns': 2,
+        'subtype': 'success', 'denials': [],
+    }
+
+
+def test_diagnostics_reports_no_file(tmp_path):
+    result, diagnostics, _ = run_diagnostics(tmp_path, None)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {'available': False, 'reason': 'NO_FILE'}
+
+
+def test_diagnostics_reports_unparseable_file(tmp_path):
+    result, diagnostics, _ = run_diagnostics(tmp_path, '{not json')
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {'available': False, 'reason': 'UNPARSEABLE'}
+
+
+def test_diagnostics_reports_missing_result_message(tmp_path):
+    execution = [{'type': 'system', 'subtype': 'init'}]
+    result, diagnostics, _ = run_diagnostics(tmp_path, execution)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {'available': False, 'reason': 'NO_RESULT_MESSAGE'}
+
+
+def test_diagnostics_degrades_invalid_scalar_field(tmp_path):
+    execution = [
+        {'type': 'result', 'subtype': 'success', 'is_error': False,
+         'duration_ms': 75, 'num_turns': 'PRIVATE_INVALID_FIELD_SENTINEL',
+         'permission_denials': []},
+    ]
+    result, diagnostics, emitted = run_diagnostics(tmp_path, execution)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {
+        'available': False, 'reason': 'INVALID_FIELD',
+        'duration_ms': 75, 'is_error': False, 'num_turns': None,
+        'subtype': 'success', 'denials': [],
+    }
+    assert 'PRIVATE_INVALID_FIELD_SENTINEL' not in emitted
+
+
+def test_diagnostics_buckets_invalid_denial(tmp_path):
+    execution = [
+        {'type': 'result', 'subtype': 'success', 'is_error': False,
+         'duration_ms': 100, 'num_turns': 3, 'permission_denials': [
+             {'tool_name': 'Bash'},
+             {'tool_name': 'PRIVATE_INVALID_DENIAL_SENTINEL\n```'},
+             {'tool_input': {'command': 'PRIVATE_COMMAND_SENTINEL'}},
+         ]},
+    ]
+    result, diagnostics, emitted = run_diagnostics(tmp_path, execution)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {
+        'available': False, 'reason': 'INVALID_DENIAL',
+        'duration_ms': 100, 'is_error': False, 'num_turns': 3,
+        'subtype': 'success',
+        'denials': [{'count': 2, 'tool_name': '<invalid>'},
+                    {'count': 1, 'tool_name': 'Bash'}],
+    }
+    assert 'PRIVATE_INVALID_DENIAL_SENTINEL' not in emitted
+    assert 'PRIVATE_COMMAND_SENTINEL' not in emitted
 
 
 def comment(**changes):
