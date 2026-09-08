@@ -53,6 +53,7 @@ def test_pins_model_and_prompt_input():
     uses = re.findall(r'^\s+uses: (\S+)', WORKFLOW, re.MULTILINE)
     assert uses == [
         'actions/checkout@11d5960a326750d5838078e36cf38b85af677262',
+        'actions/checkout@11d5960a326750d5838078e36cf38b85af677262',
         'anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636',
         'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
     ]
@@ -67,6 +68,26 @@ def test_pins_model_and_prompt_input():
     checkout = step('Checkout exact PR head as review subject')
     assert 'ref: ${{ github.event.pull_request.head.sha }}' in checkout
     assert 'persist-credentials: false' in checkout
+
+
+def test_reviewer_has_only_bounded_gh_tools():
+    review = step('Review exact PR head')
+    claude_args = review.split('          claude_args: |\n', 1)[1]
+    assert 'gh api' not in claude_args
+    assert ('--allowedTools "Read,Glob,Grep,Bash(gh pr view:*),Bash(gh pr comment:*),'
+            'Bash(gh pr diff:*),mcp__github_inline_comment__create_inline_comment"') in claude_args
+    assert 'gh api' not in PROMPT
+
+
+def test_prompt_is_loaded_only_from_trusted_main_checkout():
+    checkout = step('Checkout trusted review prompt from main')
+    assert 'repository: deedseal/proof-check' in checkout
+    assert 'ref: main' in checkout
+    assert 'path: trusted' in checkout
+    assert 'persist-credentials: false' in checkout
+    loader = program('Load vendored review prompt')
+    assert "Path('trusted/.github/claude-review/PROMPT.md')" in loader
+    assert "Path('.github/claude-review/PROMPT.md')" not in loader
 
 
 def test_record_is_inline_always_runs_and_uses_read_token():
@@ -96,10 +117,13 @@ def test_prompt_requires_independent_review_and_zero_finding_summary():
 
 
 def test_loads_file_bytes_and_exact_context(tmp_path):
+    trusted_prompt = tmp_path / 'trusted/.github/claude-review/PROMPT.md'
+    trusted_prompt.parent.mkdir(parents=True)
+    trusted_prompt.write_text(PROMPT)
     output = tmp_path / 'output'
     result = subprocess.run(
         ['python3', '-I', '-'], input=program('Load vendored review prompt'),
-        cwd=ROOT, text=True, capture_output=True,
+        cwd=tmp_path, text=True, capture_output=True,
         env={**os.environ, 'GITHUB_OUTPUT': str(output), 'GITHUB_REPOSITORY': 'owner/repo',
              'REVIEW_PR': '9', 'REVIEW_HEAD': HEAD, 'GITHUB_RUN_ID': RUN},
     )
