@@ -10,14 +10,14 @@ single_line() {
   [[ "$2" != *$'\n'* && "$2" != *$'\r'* ]] || refuse "$1 must contain one line"
 }
 
-action_ref="${GITHUB_ACTION_REF:-}"
+action_ref="${PROOF_CHECK_ACTION_REF:-}"
 if [[ -n "$action_ref" ]]; then
   source_commit="$action_ref"
 else
-  # A repository-local `uses: ./` does not provide GITHUB_ACTION_REF. It may
+  # A repository-local `uses: ./` does not provide an action ref. It may
   # use the checked-out source commit only when GitHub identifies no remote action repository and
   # the action directory is exactly the workflow workspace.
-  [[ -z "${GITHUB_ACTION_REPOSITORY:-}" ]] || \
+  [[ -z "${PROOF_CHECK_ACTION_REPOSITORY:-}" ]] || \
     refuse "action reference must be a full 40-hex commit; tags and branches are not pins"
   action_path="$(cd "${GITHUB_ACTION_PATH:-/nonexistent}" 2>/dev/null && pwd -P)" || \
     refuse "local action path is unavailable"
