@@ -1,0 +1,65 @@
+name: Proof Check Pinned
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  statuses: read
+
+jobs:
+  proof-check-pinned:
+    name: Proof Check Pinned
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout subject as data only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: subject
+          persist-credentials: false
+      - name: Checkout accepted verifier and policy
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: deedseal/proof-check
+          ref: f26daae5d3795f2502cd794e3c1194e002bc726d
+          path: trusted
+          persist-credentials: false
+      - name: Prepare offline bundle
+        shell: bash
+        run: |
+          mkdir proof-check-bundle
+          cp trusted/examples/action/policy.json proof-check-bundle/policy.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          Path('proof-check-bundle/declaration.txt').write_bytes(
+              (event['pull_request']['body'] or '').encode('utf-8'))
+          PY
+      - name: Evaluate exact PR head with accepted checker
+        uses: deedseal/proof-check@f26daae5d3795f2502cd794e3c1194e002bc726d
+        with:
+          policy: proof-check-bundle/policy.json
+          declaration: proof-check-bundle/declaration.txt
+          receipt: proof-check-bundle/receipt.json
+          target: head
+      - name: Verify receipt offline with accepted verifier
+        if: ${{ always() && hashFiles('proof-check-bundle/receipt.json') != '' }}
+        shell: bash
+        run: |
+          python3 -m venv "$RUNNER_TEMP/proof-check-verify"
+          "$RUNNER_TEMP/proof-check-verify/bin/python" -m pip install ./trusted
+          "$RUNNER_TEMP/proof-check-verify/bin/proof-check" verify \
+            proof-check-bundle/receipt.json --offline-bundle proof-check-bundle
+      - name: Upload offline bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proof-check-pinned-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: proof-check-bundle/
+          if-no-files-found: error
