@@ -1,0 +1,9 @@
+{
+  "prior_head": [
+    {"id": 101, "head_sha": "2222222222222222222222222222222222222222", "status": "completed", "conclusion": "success", "event": "pull_request", "path": ".github/workflows/claude-review.yml", "created_at": "2026-09-08T00:00:00Z", "pull_requests": [{"number": 19}]}
+  ],
+  "failure_then_success": [
+    {"id": 201, "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "failure", "event": "pull_request", "path": ".github/workflows/claude-review.yml", "created_at": "2026-09-08T00:01:00Z", "pull_requests": [{"number": 19}]},
+    {"id": 202, "head_sha": "1111111111111111111111111111111111111111", "status": "completed", "conclusion": "success", "event": "pull_request", "path": ".github/workflows/claude-review.yml", "created_at": "2026-09-08T00:02:00Z", "pull_requests": [{"number": 19}]}
+  ]
+}

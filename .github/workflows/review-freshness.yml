@@ -1,0 +1,84 @@
+name: Review Freshness
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_run:
+    workflows: ["Claude Review"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  freshness:
+    name: Review Freshness
+    if: >-
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.pull_requests[0] != null)
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    steps:
+      - name: Checkout trusted checker from main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: deedseal/proof-check
+          ref: main
+          path: trusted
+          persist-credentials: false
+
+      - name: Resolve current pull-request head
+        id: subject
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PULL_REQUEST_NUMBER}" --jq '.head.sha')"
+          echo "number=${PULL_REQUEST_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "head_sha=${head_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Require trusted checker bootstrap
+        shell: bash
+        run: |
+          # On this packet's bootstrap PR the checker is not on main yet. Fail
+          # closed; never execute the PR-authored candidate as its own judge.
+          test -f trusted/tools/review_freshness/check.py || {
+            echo "::error::Review Freshness checker is not yet present on main."
+            exit 1
+          }
+
+      - name: Check reviewer run at current head
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WAIT_FOR_REVIEW: ${{ github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'ready_for_review') }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          deadline=$((SECONDS + 900))
+          while true; do
+            set +e
+            result="$(python3 trusted/tools/review_freshness/check.py \
+              --repository "$GITHUB_REPOSITORY" \
+              --pr-number "${{ steps.subject.outputs.number }}" \
+              --head-sha "${{ steps.subject.outputs.head_sha }}")"
+            status=$?
+            set -e
+            echo "$result"
+            if [[ $status -eq 0 || $status -eq 2 ]]; then
+              exit "$status"
+            fi
+            reason="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["reason"])' <<<"$result")"
+            if [[ "$WAIT_FOR_REVIEW" != "true" || "$reason" == "API_ERROR" || "$reason" == "RUN_NOT_SUCCESS" || "$reason" == "REVIEWER_WORKFLOW_MODIFIED" || $SECONDS -ge $deadline ]]; then
+              exit 10
+            fi
+            sleep 10
+          done
