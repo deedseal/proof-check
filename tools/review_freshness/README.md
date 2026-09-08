@@ -7,7 +7,8 @@ workflow runs and the reviewer workflow blobs at the head and current main;
 it never reads comments. Different blobs yield `REVIEWER_WORKFLOW_MODIFIED`.
 
 Closed stale reasons are `NO_RUN_FOR_HEAD`, `RUN_NOT_COMPLETED`,
-`RUN_NOT_SUCCESS`, and `API_ERROR`. API failures always fail closed.
+`RUN_NOT_SUCCESS`, `REVIEWER_WORKFLOW_MODIFIED`, and `API_ERROR`.
+API failures always fail closed.
 
 ```console
 GITHUB_TOKEN=... python3 tools/review_freshness/check.py \
@@ -23,5 +24,11 @@ successful job. Required-check enforcement needs an independently protected
 workflow configuration; name binding alone does not provide that protection.
 
 For an opened or newly-ready pull request, the repository workflow polls this
-one-shot decision while the reviewer is running. A later push is checked once
-and becomes stale immediately because the reviewer does not run on pushes.
+one-shot decision while the reviewer is running, with a 1900-second polling
+deadline and a 33-minute job timeout (the reviewer has a 30-minute budget).
+`API_ERROR` allows at most three retries across the job, ten seconds apart,
+within that deadline, including on non-waiting events. Exhaustion is terminal.
+A later push does not wait for a reviewer run and becomes stale because the
+reviewer does not run on pushes; only transient API errors are retried.
+Only `pull_request` events trigger this workflow. Draft and fork PRs remain
+excluded by the job guard.
