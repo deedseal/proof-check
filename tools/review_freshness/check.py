@@ -18,6 +18,7 @@ from typing import Callable
 REVIEWER_WORKFLOW = "claude-review.yml"
 REVIEWER_PATH = ".github/workflows/claude-review.yml"
 REASONS = {
+    "REVIEWER_WORKFLOW_MODIFIED",
     "NO_RUN_FOR_HEAD",
     "RUN_NOT_COMPLETED",
     "RUN_NOT_SUCCESS",
@@ -163,6 +164,25 @@ def decide(
         return _result("STALE", "RUN_NOT_COMPLETED", run_id, head_sha, clock)
     if latest.get("conclusion") != "success":
         return _result("STALE", "RUN_NOT_SUCCESS", run_id, head_sha, clock)
+    try:
+        blobs = []
+        for ref in (head_sha, "main"):
+            content = _get(
+                transport, api_url, f"{base}/contents/{REVIEWER_PATH}",
+                token, {"ref": ref},
+            )
+            if (
+                not isinstance(content, dict)
+                or content.get("type") != "file"
+                or not isinstance(content.get("sha"), str)
+                or not SHA_RE.fullmatch(content["sha"])
+            ):
+                raise RuntimeError("invalid reviewer workflow blob")
+            blobs.append(content["sha"])
+    except Exception:
+        return _result("STALE", "API_ERROR", run_id, head_sha, clock)
+    if blobs[0] != blobs[1]:
+        return _result("STALE", "REVIEWER_WORKFLOW_MODIFIED", run_id, head_sha, clock)
     return _result("FRESH", None, run_id, head_sha, clock)
 
 
