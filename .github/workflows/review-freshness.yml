@@ -3,9 +3,6 @@ name: Review Freshness
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  workflow_run:
-    workflows: ["Claude Review"]
-    types: [completed]
 
 permissions:
   contents: read
@@ -16,15 +13,11 @@ jobs:
   freshness:
     name: Review Freshness
     if: >-
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.draft == false &&
-       github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.event == 'pull_request' &&
-       github.event.workflow_run.head_repository.full_name == github.repository &&
-       github.event.workflow_run.pull_requests[0] != null)
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 17
+    timeout-minutes: 33
     steps:
       - name: Checkout trusted checker from main
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -38,7 +31,7 @@ jobs:
         id: subject
         env:
           GH_TOKEN: ${{ github.token }}
-          PULL_REQUEST_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
         shell: bash
         run: |
           set -euo pipefail
@@ -63,7 +56,8 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          deadline=$((SECONDS + 900))
+          deadline=$((SECONDS + 1900))
+          api_retries=0
           while true; do
             set +e
             result="$(python3 trusted/tools/review_freshness/check.py \
@@ -77,8 +71,19 @@ jobs:
               exit "$status"
             fi
             reason="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["reason"])' <<<"$result")"
-            if [[ "$WAIT_FOR_REVIEW" != "true" || "$reason" == "API_ERROR" || "$reason" == "RUN_NOT_SUCCESS" || "$reason" == "REVIEWER_WORKFLOW_MODIFIED" || $SECONDS -ge $deadline ]]; then
+            if [[ "$reason" == "RUN_NOT_SUCCESS" || "$reason" == "REVIEWER_WORKFLOW_MODIFIED" || $SECONDS -ge $deadline ]]; then
+              exit 10
+            fi
+            if [[ "$reason" == "API_ERROR" ]]; then
+              if [[ $api_retries -ge 3 ]]; then
+                exit 10
+              fi
+              api_retries=$((api_retries + 1))
+            elif [[ "$WAIT_FOR_REVIEW" != "true" ]]; then
               exit 10
             fi
             sleep 10
+            if [[ $SECONDS -ge $deadline ]]; then
+              exit 10
+            fi
           done
