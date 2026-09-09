@@ -25,6 +25,10 @@ Every verdict comes with a plain-language explanation and a JSON receipt: what w
 - A receipt is not certification, and it does not remove trust in GitHub, repository permissions, the evaluated inputs, the runner, or the reader's chosen verifier.
 - No code upload, no backend, no account. It reads GitHub data with read-only permissions inside your own workflow or on your own machine.
 
+## Repository development gates
+
+For this repository's own changes, `Proof Check Pinned` evaluates the declared scope and evidence coherence for the exact PR head; it does not decide code correctness or merge readiness. `Claude Review` is a separate repository workflow: its summary shows that the reviewer produced output, not approval or a merge decision. `Review Freshness` accepts only a successful reviewer run and summary bound to the current head. Reviewer diagnostics describe execution shape and permission denials (`num_turns`, `duration_ms`, `is_error`, `subtype`, and aggregated permission-denial counts); they do not measure token usage or cost, or record prompts, file contents, or tool inputs.
+
 The full boundary is in [`docs/contract/claims-and-nonclaims.md`](docs/contract/claims-and-nonclaims.md) and [`SECURITY.md`](SECURITY.md).
 
 ## The contract
