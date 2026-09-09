@@ -1,0 +1,31 @@
+{
+  "name": "n28-builder-assignment-0001",
+  "target": "branch",
+  "enforcement": "active",
+  "bypass_actors": [
+    {
+      "actor_id": "<BUILDER_APP_ID>",
+      "actor_type": "Integration",
+      "bypass_mode": "always"
+    }
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/builder/n28-assignment-0001"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "creation"
+    },
+    {
+      "type": "update"
+    },
+    {
+      "type": "deletion"
+    }
+  ]
+}
