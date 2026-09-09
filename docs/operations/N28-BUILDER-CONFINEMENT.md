@@ -125,7 +125,8 @@ gh api /repos/deedseal/proof-check/installations \
 
 ```bash
 # 1. Substitute the resolved integer, without editing the repository file.
-jq --argjson app_id <BUILDER_APP_ID> \
+BUILDER_APP_ID=<the app_id read above>
+jq --argjson app_id "$BUILDER_APP_ID" \
    '.bypass_actors[0].actor_id = $app_id' \
    examples/rulesets/n28-builder-confinement.json > /tmp/n28-ruleset.json
 
@@ -169,7 +170,7 @@ hostile mutation corpus. The reason-code vocabulary is closed:
 | Reason code | Rejects |
 |---|---|
 | `PAYLOAD_NOT_OBJECT` | A payload that is not a JSON object. |
-| `EXTRA_TOP_LEVEL_KEY` | Any key beyond the five in §4. |
+| `EXTRA_TOP_LEVEL_KEY` | Any key beyond the six named in §4. |
 | `NAME_MISSING` | Absent, empty or non-string `name`. |
 | `NAME_RESERVED` | A name that would collide with an existing Owner ruleset (`main-protection`, `smoke containment`). |
 | `TARGET_NOT_BRANCH` | `target` of `tag` or `push`. |
