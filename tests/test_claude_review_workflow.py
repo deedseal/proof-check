@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -408,6 +409,14 @@ def test_zero_findings_summary_is_sufficient(tmp_path):
     assert result.returncode == 0, result.stderr
     assert record['conclusion'] == 'success'
     assert (record['inline_comments'], record['summary_comments']) == (0, 1)
+    assert record['summary_comment_id'] == 71
+    assert record['summary_sha256'] == hashlib.sha256(MARKER.encode()).hexdigest()
+    assert (tmp_path / 'claude-review-summary.txt').read_text() == MARKER
+    assert (tmp_path / 'output').read_text() == 'summary_comment_id=71\n'
+    publish = step('Publish exact-head formal review')
+    assert 'REVIEW_SUMMARY_ID: ${{ steps.record.outputs.summary_comment_id }}' in publish
+    assert '--summary-id "$REVIEW_SUMMARY_ID"' in publish
+    assert '--summary-file "$RUNNER_TEMP/claude-review-summary.txt"' in publish
 
 
 @pytest.mark.parametrize('changes', [

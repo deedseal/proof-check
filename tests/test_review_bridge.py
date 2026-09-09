@@ -21,15 +21,20 @@ SUMMARY = f"Reviewed.\n\nCLAUDE_REVIEW/v1 head={HEAD} run={RUN} verdict=CLEAN fi
 
 
 class RecordingTransport:
-    def __init__(self, *, existing=None, readback=None):
-        self.existing, self.readback, self.calls = existing or [], readback, []
+    def __init__(self, *, existing=None, existing_pages=None, readback=None, pull=None):
+        self.existing = existing or []
+        self.existing_pages = existing_pages
+        self.readback, self.calls = readback, []
+        self.pull = pull or {"state": "open", "head": {"sha": HEAD}, "user": {"login": "author"}}
     def request(self, method, url, token, payload=None):
         self.calls.append((method, url, payload))
         path = urlsplit(url).path
         if method == "GET" and path.endswith("/pulls/7"):
-            return BRIDGE.Response(200, json.dumps({"state": "open", "head": {"sha": HEAD}, "user": {"login": "author"}}).encode())
+            return BRIDGE.Response(200, json.dumps(self.pull).encode())
         if method == "GET" and path.endswith("/reviews"):
-            return BRIDGE.Response(200, json.dumps(self.existing).encode())
+            page = int((urlsplit(url).query.split("page=")[-1] or "1"))
+            rows = self.existing if self.existing_pages is None else self.existing_pages[page - 1]
+            return BRIDGE.Response(200, json.dumps(rows).encode())
         if method == "POST":
             return BRIDGE.Response(200, b'{"id":91}')
         if method == "GET" and path.endswith("/reviews/91"):
@@ -76,6 +81,36 @@ def test_conflicts_and_readback_mismatch_refuse():
         BRIDGE.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=RecordingTransport(readback={"id": 91}))
 
 
+@pytest.mark.parametrize("producer", [BRIDGE.OWNER_LOGIN, BRIDGE.APP_LOGIN, "claude[bot]", None])
+def test_hostile_producer_identities_refuse(producer):
+    pull = {"state": "open", "head": {"sha": HEAD}, "user": {"login": producer}}
+    with pytest.raises(BRIDGE.Refusal, match="UNTRUSTED_PRODUCER"):
+        BRIDGE.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=RecordingTransport(pull=pull))
+
+
+@pytest.mark.parametrize("pull", [
+    {"state": "open", "head": {"sha": "b" * 40}, "user": {"login": "author"}},
+    {"state": "closed", "head": {"sha": HEAD}, "user": {"login": "author"}},
+])
+def test_moved_head_and_closed_pr_refuse(pull):
+    with pytest.raises(BRIDGE.Refusal, match="PR_HEAD_CHANGED"):
+        BRIDGE.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=RecordingTransport(pull=pull))
+
+
+def test_review_reconciliation_paginates_before_refusing_or_publishing():
+    body = BRIDGE.review_body("owner/repo", 7, HEAD, RUN, 8, "CLEAN", 0)
+    first_page = [{"id": number, "commit_id": "b" * 40, "state": "COMMENTED", "body": "other",
+                   "user": {"login": BRIDGE.APP_LOGIN}} for number in range(100)]
+    exact = {"id": 101, "commit_id": HEAD, "state": "COMMENTED", "body": body,
+             "user": {"login": BRIDGE.APP_LOGIN}}
+    transport = RecordingTransport(existing_pages=[first_page, [exact]])
+    result = BRIDGE.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=transport)
+    assert result["status"] == "reconciled" and result["review_id"] == 101
+    assert all(method != "POST" for method, _, _ in transport.calls)
+    assert [urlsplit(url).query for method, url, _ in transport.calls if urlsplit(url).path.endswith("/reviews")] == [
+        "per_page=100&page=1", "per_page=100&page=2"]
+
+
 def _mutant(tmp_path, old, new):
     source = (Path(__file__).parents[1] / "tools/review_bridge.py").read_text()
     assert source.count(old) == 1
@@ -100,6 +135,12 @@ def test_behavioral_mutants_kill_required_bridge_guards(tmp_path):
         module = _mutant(tmp_path, old, new)
         with pytest.raises(AssertionError):
             module.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=GuardTransport())
+    module = _mutant(tmp_path, 'if producer in {OWNER_LOGIN, APP_LOGIN, "claude[bot]"} or not isinstance(producer, str):',
+                     'if False:')
+    hostile_pull = {"state": "open", "head": {"sha": HEAD}, "user": {"login": module.APP_LOGIN}}
+    with pytest.raises(AssertionError):
+        assert module.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token",
+                              transport=RecordingTransport(pull=hostile_pull)) is None
     module = _mutant(tmp_path, '(verdict == "CLEAN" and count != 0)', 'False')
     with pytest.raises(AssertionError):
         assert module.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY.replace("findings=0", "findings=1"), "token", transport=RecordingTransport()) is None
