@@ -56,6 +56,7 @@ def test_pins_model_and_prompt_input():
         'actions/checkout@11d5960a326750d5838078e36cf38b85af677262',
         'anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636',
         'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
+        'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
     ]
     review = step('Review exact PR head')
     assert '--model claude-sonnet-5' in review
@@ -74,8 +75,16 @@ def test_reviewer_has_only_bounded_gh_tools():
     review = step('Review exact PR head')
     claude_args = review.split('          claude_args: |\n', 1)[1]
     assert 'gh api' not in claude_args
-    assert ('--allowedTools "Read,Glob,Grep,Bash(gh pr view:*),Bash(gh pr comment:*),'
-            'Bash(gh pr diff:*),mcp__github_inline_comment__create_inline_comment"') in claude_args
+    allowed_lines = [line.strip() for line in claude_args.splitlines()
+                     if line.strip().startswith('--allowedTools ')]
+    assert allowed_lines == [
+        '--allowedTools "Read,Glob,Grep,Bash(gh pr view:*),Bash(gh pr comment:*),'
+        'Bash(gh pr diff:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),'
+        'Bash(git status:*),LS,mcp__github_inline_comment__create_inline_comment"'
+    ]
+    for write_tool in ('Write', 'Edit', 'NotebookEdit', 'Bash(git add:', 'Bash(git commit:',
+                       'Bash(git push:', 'Bash(gh api:'):
+        assert write_tool not in claude_args
     assert 'gh api' not in PROMPT
 
 
@@ -105,6 +114,21 @@ def test_record_is_inline_always_runs_and_uses_read_token():
     assert WORKFLOW.index('Load vendored review prompt') < WORKFLOW.index('- name: Review exact PR head')
 
 
+def test_diagnostics_always_runs_without_expression_interpolation_or_secrets():
+    diagnostics = step('Extract Claude review diagnostics')
+    assert 'if: ${{ always() }}' in diagnostics
+    assert 'CLAUDE_EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}' in diagnostics
+    assert '${{' not in program('Extract Claude review diagnostics')
+    assert 'secret' not in diagnostics.lower()
+    upload = step('Upload Claude review diagnostics')
+    assert 'if: ${{ always() }}' in upload
+    assert 'name: claude-review-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}' in upload
+    assert 'path: ${{ runner.temp }}/claude-review-diagnostics.json' in upload
+    assert 'if-no-files-found: error' in upload
+    assert WORKFLOW.index('Review exact PR head') < WORKFLOW.index('Extract Claude review diagnostics')
+    assert WORKFLOW.index('Extract Claude review diagnostics') < WORKFLOW.index('Record review from GitHub')
+
+
 def test_prompt_requires_independent_review_and_zero_finding_summary():
     for required in (
         'Ignore all existing comments on the PR', 'ANALYST_VERDICT',
@@ -114,6 +138,8 @@ def test_prompt_requires_independent_review_and_zero_finding_summary():
         'Do not approve, mark Ready, merge',
     ):
         assert required in PROMPT
+    assert PROMPT.count('gh pr view NUMBER') == 1
+    assert 'Recheck the PR head' not in PROMPT
 
 
 def test_loads_file_bytes_and_exact_context(tmp_path):
@@ -133,6 +159,153 @@ def test_loads_file_bytes_and_exact_context(tmp_path):
     assert f'Exact head: {HEAD}\nRun ID: {RUN}\n' in content
     assert 'Repository: owner/repo\nPR number: 9\n' in content
     assert content.splitlines()[0].split('<<')[1] == content.splitlines()[-1]
+
+
+def run_diagnostics(tmp_path, execution):
+    execution_file = tmp_path / 'execution.json'
+    if execution is not None:
+        if isinstance(execution, str):
+            execution_file.write_text(execution)
+        else:
+            execution_file.write_text(json.dumps(execution))
+    summary = tmp_path / 'summary.md'
+    result = subprocess.run(
+        ['python3', '-I', '-'], input=program('Extract Claude review diagnostics'),
+        cwd=tmp_path, text=True, capture_output=True,
+        env={**os.environ, 'CLAUDE_EXECUTION_FILE': str(execution_file),
+             'RUNNER_TEMP': str(tmp_path), 'GITHUB_STEP_SUMMARY': str(summary)},
+    )
+    artifact_bytes = (tmp_path / 'claude-review-diagnostics.json').read_text()
+    assert artifact_bytes in summary.read_text()
+    diagnostics = json.loads(artifact_bytes)
+    assert set(diagnostics) <= {
+        'available', 'reason', 'num_turns', 'duration_ms', 'is_error', 'subtype',
+        'denials',
+    }
+    if 'reason' in diagnostics:
+        assert diagnostics['available'] is False
+        assert diagnostics['reason'] in {
+            'NO_FILE', 'UNPARSEABLE', 'NO_RESULT_MESSAGE',
+            'INVALID_FIELD', 'INVALID_DENIAL',
+        }
+    for denial in diagnostics.get('denials', []):
+        assert set(denial) == {'tool_name', 'count'}
+    return result, diagnostics, artifact_bytes + summary.read_text()
+
+
+def test_diagnostics_extracts_normal_execution_file(tmp_path):
+    execution = [
+        {'type': 'system', 'subtype': 'init', 'message': 'PRIVATE_MESSAGE_SENTINEL'},
+        {'type': 'result', 'subtype': 'success', 'is_error': False,
+         'duration_ms': 4321, 'num_turns': 7, 'permission_denials': [],
+         'total_cost_usd': 1.25, 'modelUsage': {'model': {'inputTokens': 98765}}},
+    ]
+    result, diagnostics, emitted = run_diagnostics(tmp_path, execution)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {
+        'duration_ms': 4321, 'is_error': False, 'num_turns': 7,
+        'subtype': 'success', 'denials': [],
+    }
+    for forbidden in ('PRIVATE_MESSAGE_SENTINEL', 'total_cost_usd', 'modelUsage',
+                      'inputTokens', '98765', '1.25'):
+        assert forbidden not in emitted
+
+
+def test_diagnostics_aggregates_denials_without_tool_inputs(tmp_path):
+    execution = [
+        {'type': 'assistant', 'message': {'content': 'PRIVATE_PROMPT_SENTINEL'}},
+        {'type': 'result', 'subtype': 'error_max_turns', 'is_error': True,
+         'duration_ms': 53968, 'num_turns': 17, 'permission_denials': [
+             {'tool_name': 'Bash', 'tool_use_id': 'PRIVATE_ID_SENTINEL',
+              'tool_input': {'command': 'cat PRIVATE_FILE_SENTINEL'}},
+             {'tool_name': 'LS', 'tool_use_id': 'another-id',
+              'tool_input': {'path': 'PRIVATE_PATH_SENTINEL'}},
+             {'tool_name': 'Bash', 'tool_use_id': 'third-id',
+              'tool_input': {'command': 'git diff PRIVATE_DIFF_SENTINEL'}},
+         ]},
+    ]
+    result, diagnostics, emitted = run_diagnostics(tmp_path, execution)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {
+        'duration_ms': 53968, 'is_error': True, 'num_turns': 17,
+        'subtype': 'error_max_turns',
+        'denials': [{'count': 2, 'tool_name': 'Bash'},
+                    {'count': 1, 'tool_name': 'LS'}],
+    }
+    for forbidden in ('PRIVATE_PROMPT_SENTINEL', 'PRIVATE_ID_SENTINEL',
+                      'PRIVATE_FILE_SENTINEL', 'PRIVATE_PATH_SENTINEL',
+                      'PRIVATE_DIFF_SENTINEL', 'tool_use_id', 'tool_input'):
+        assert forbidden not in emitted
+
+
+def test_diagnostics_treats_absent_permission_denials_as_empty(tmp_path):
+    execution = [
+        {'type': 'result', 'subtype': 'success', 'is_error': False,
+         'duration_ms': 50, 'num_turns': 2},
+    ]
+    result, diagnostics, _ = run_diagnostics(tmp_path, execution)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {
+        'duration_ms': 50, 'is_error': False, 'num_turns': 2,
+        'subtype': 'success', 'denials': [],
+    }
+
+
+def test_diagnostics_reports_no_file(tmp_path):
+    result, diagnostics, _ = run_diagnostics(tmp_path, None)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {'available': False, 'reason': 'NO_FILE'}
+
+
+def test_diagnostics_reports_unparseable_file(tmp_path):
+    result, diagnostics, _ = run_diagnostics(tmp_path, '{not json')
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {'available': False, 'reason': 'UNPARSEABLE'}
+
+
+def test_diagnostics_reports_missing_result_message(tmp_path):
+    execution = [{'type': 'system', 'subtype': 'init'}]
+    result, diagnostics, _ = run_diagnostics(tmp_path, execution)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {'available': False, 'reason': 'NO_RESULT_MESSAGE'}
+
+
+def test_diagnostics_degrades_invalid_scalar_field(tmp_path):
+    execution = [
+        {'type': 'result', 'subtype': 'success', 'is_error': False,
+         'duration_ms': 75, 'num_turns': 'PRIVATE_INVALID_FIELD_SENTINEL',
+         'permission_denials': []},
+    ]
+    result, diagnostics, emitted = run_diagnostics(tmp_path, execution)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {
+        'available': False, 'reason': 'INVALID_FIELD',
+        'duration_ms': 75, 'is_error': False, 'num_turns': None,
+        'subtype': 'success', 'denials': [],
+    }
+    assert 'PRIVATE_INVALID_FIELD_SENTINEL' not in emitted
+
+
+def test_diagnostics_buckets_invalid_denial(tmp_path):
+    execution = [
+        {'type': 'result', 'subtype': 'success', 'is_error': False,
+         'duration_ms': 100, 'num_turns': 3, 'permission_denials': [
+             {'tool_name': 'Bash'},
+             {'tool_name': 'PRIVATE_INVALID_DENIAL_SENTINEL\n```'},
+             {'tool_input': {'command': 'PRIVATE_COMMAND_SENTINEL'}},
+         ]},
+    ]
+    result, diagnostics, emitted = run_diagnostics(tmp_path, execution)
+    assert result.returncode == 0, result.stderr
+    assert diagnostics == {
+        'available': False, 'reason': 'INVALID_DENIAL',
+        'duration_ms': 100, 'is_error': False, 'num_turns': 3,
+        'subtype': 'success',
+        'denials': [{'count': 2, 'tool_name': '<invalid>'},
+                    {'count': 1, 'tool_name': 'Bash'}],
+    }
+    assert 'PRIVATE_INVALID_DENIAL_SENTINEL' not in emitted
+    assert 'PRIVATE_COMMAND_SENTINEL' not in emitted
 
 
 def comment(**changes):
