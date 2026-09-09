@@ -23,8 +23,17 @@ REASONS = {
     "RUN_NOT_COMPLETED",
     "RUN_NOT_SUCCESS",
     "API_ERROR",
+    "REVIEW_EXECUTION_FAILED",
+    "REVIEW_REPAIR_REQUIRED",
 }
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+APP_LOGIN = "deedseal-review-bot[bot]"
+REVIEW_RE = re.compile(
+    r"\ADEEDSEAL_AUTOMATED_REVIEW/v1\nrepository=([^\n]+)\npr=([1-9][0-9]*)\n"
+    r"head=([0-9a-f]{40})\nrun=([1-9][0-9]*)\nsource_summary_comment_id=([1-9][0-9]*)\n"
+    r"verdict=(CLEAN|ADVISORY|REPAIR_REQUIRED)\nfindings=([0-9]+)\n"
+    r"(DEEDSEAL_REVIEW_ACCEPTABLE/v1|DEEDSEAL_REVIEW_REPAIR_REQUIRED/v1)\n\Z"
+)
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,23 @@ def _run_key(run: dict) -> tuple[str, int, int, int]:
         int(run.get("run_attempt") or 0),
         int(run.get("id") or 0),
     )
+
+
+def _review_verdict(review: dict, repository: str, pr: int, head: str, run_id: object) -> str | None:
+    if (review.get("commit_id") != head or review.get("state") != "COMMENTED"
+            or ((review.get("user") or {}).get("login") != APP_LOGIN)):
+        return None
+    found = REVIEW_RE.fullmatch(str(review.get("body") or ""))
+    if not found:
+        return None
+    repo, body_pr, body_head, body_run, _source, verdict, findings, stable = found.groups()
+    if repo != repository or int(body_pr) != pr or body_head != head or str(run_id) != body_run:
+        return None
+    if (verdict == "CLEAN" and findings != "0") or (verdict == "REPAIR_REQUIRED" and findings == "0"):
+        return None
+    if (verdict == "REPAIR_REQUIRED") != (stable == "DEEDSEAL_REVIEW_REPAIR_REQUIRED/v1"):
+        return None
+    return verdict
 
 
 def decide(
@@ -183,6 +209,26 @@ def decide(
         return _result("STALE", "API_ERROR", run_id, head_sha, clock)
     if blobs[0] != blobs[1]:
         return _result("STALE", "REVIEWER_WORKFLOW_MODIFIED", run_id, head_sha, clock)
+    try:
+        reviews: list[dict] = []
+        for page in range(1, 101):
+            payload = _get(transport, api_url, f"{base}/pulls/{pr_number}/reviews", token,
+                           {"per_page": "100", "page": str(page)})
+            if not isinstance(payload, list):
+                raise RuntimeError("reviews response is malformed")
+            reviews.extend(item for item in payload if isinstance(item, dict))
+            if len(payload) < 100:
+                break
+        else:
+            raise RuntimeError("reviews pagination exceeded 100 pages")
+    except Exception:
+        return _result("STALE", "API_ERROR", run_id, head_sha, clock)
+    verdicts = [verdict for review in reviews
+                if (verdict := _review_verdict(review, repository, pr_number, head_sha, run_id))]
+    if len(verdicts) != 1:
+        return _result("STALE", "REVIEW_EXECUTION_FAILED", run_id, head_sha, clock)
+    if verdicts[0] == "REPAIR_REQUIRED":
+        return _result("BLOCKING", "REVIEW_REPAIR_REQUIRED", run_id, head_sha, clock)
     return _result("FRESH", None, run_id, head_sha, clock)
 
 

@@ -214,7 +214,8 @@ jobs:
           head = os.environ['REVIEW_HEAD']
           run_id = os.environ['REVIEW_RUN_ID']
           record = dict(head_sha=head, run_id=run_id, conclusion='failure',
-                        inline_comments=None, summary_comments=None)
+                        inline_comments=None, summary_comments=None,
+                        summary_comment_id=None, summary_sha256=None)
 
           def timestamp(value):
               parsed = datetime.fromisoformat(value.replace('Z', '+00:00'))
@@ -247,16 +248,24 @@ jobs:
                           and timestamp(comment['created_at']) > started)
 
               marker = re.compile(
-                  rf'^CLAUDE_REVIEW head={re.escape(head)} run={re.escape(run_id)} findings=[0-9]+$',
-                  re.MULTILINE)
+                  rf'^CLAUDE_REVIEW/v1 head={re.escape(head)} run={re.escape(run_id)} '
+                  r'verdict=(?:CLEAN|ADVISORY|REPAIR_REQUIRED) findings=[0-9]+$', re.MULTILINE)
               inline = sum(
                   authored_this_job(comment) and comment['commit_id'] == head
                   for comment in comments(f'repos/{repository}/pulls/{pr}/comments'))
-              summary = sum(
-                  authored_this_job(comment) and bool(marker.search(comment.get('body') or ''))
-                  for comment in comments(f'repos/{repository}/issues/{pr}/comments'))
+              summaries = [comment for comment in comments(f'repos/{repository}/issues/{pr}/comments')
+                           if authored_this_job(comment) and bool(marker.search(comment.get('body') or ''))]
+              summary = len(summaries)
               record.update(inline_comments=inline, summary_comments=summary)
-              if (summary > 0 and os.environ['REVIEW_CONCLUSION'] == 'success'
+              if summary == 1:
+                  selected = summaries[0]
+                  text = selected['body']
+                  record.update(summary_comment_id=selected['id'],
+                                summary_sha256=__import__('hashlib').sha256(text.encode()).hexdigest())
+                  Path(os.environ['RUNNER_TEMP'], 'claude-review-summary.txt').write_text(text, encoding='utf-8')
+                  with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+                      output.write(f"summary_comment_id={selected['id']}\n")
+              if (summary == 1 and os.environ['REVIEW_CONCLUSION'] == 'success'
                       and os.environ['REVIEW_OUTCOME'] == 'success'):
                   record['conclusion'] = 'success'
           except Exception:
@@ -268,7 +277,7 @@ jobs:
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary_file:
               summary_file.write('## Claude review record\n\n```json\n' + encoded + '```\n')
           if record['conclusion'] != 'success':
-              print('::error::Review requires successful execution and a new Claude summary for this head and run.')
+              print('::error::Review requires successful execution and exactly one new Claude summary for this head and run.')
               raise SystemExit(1)
           PY
 
@@ -279,3 +288,35 @@ jobs:
           name: claude-review-record-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/claude-review-record.json
           if-no-files-found: error
+
+      - name: Mint Deedseal Review App token
+        id: review-app
+        if: ${{ steps.record.outcome == 'success' }}
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: '4698242'
+          private-key: ${{ secrets.DEEDSEAL_REVIEW_APP_PRIVATE_KEY }}
+
+      - name: Publish exact-head formal review
+        if: ${{ steps.record.outcome == 'success' }}
+        env:
+          DEEDSEAL_REVIEW_APP_TOKEN: ${{ steps.review-app.outputs.token }}
+          REVIEW_REPOSITORY: ${{ github.repository }}
+          REVIEW_PR: ${{ github.event.pull_request.number }}
+          REVIEW_HEAD: ${{ github.event.pull_request.head.sha }}
+          REVIEW_RUN_ID: ${{ github.run_id }}
+          REVIEW_SUMMARY_ID: ${{ steps.record.outputs.summary_comment_id }}
+        shell: bash
+        run: |
+          python3 -I trusted/tools/review_bridge.py --repository "$REVIEW_REPOSITORY" \
+            --pr "$REVIEW_PR" --head "$REVIEW_HEAD" --run "$REVIEW_RUN_ID" \
+            --summary-id "$REVIEW_SUMMARY_ID" --summary-file "$RUNNER_TEMP/claude-review-summary.txt" \
+            --record "$RUNNER_TEMP/deedseal-formal-review-record.json"
+
+      - name: Upload formal review record
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deedseal-formal-review-record-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/deedseal-formal-review-record.json
+          if-no-files-found: warn

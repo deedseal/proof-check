@@ -30,11 +30,12 @@ def _load(name: str):
 
 
 class FixtureTransport:
-    def __init__(self, pages=None, *, status=200, modified=False, missing_ref=None):
+    def __init__(self, pages=None, *, reviews=None, status=200, modified=False, missing_ref=None):
         self.modified = modified
         self.missing_ref = missing_ref
         self.pages = pages if pages is not None else {1: []}
         self.status = status
+        self.reviews = reviews if reviews is not None else {1: []}
         self.calls = []
 
     def request(self, url: str, token: str):
@@ -57,11 +58,27 @@ class FixtureTransport:
                 {},
                 json.dumps({"workflow_runs": self.pages.get(page, [])}).encode(),
             )
+        if path.endswith(f"/pulls/{PR_NUMBER}/reviews"):
+            page = int(parse_qs(urlsplit(url).query).get("page", ["1"])[0])
+            return CHECK.Response(200, {}, json.dumps(self.reviews.get(page, [])).encode())
         raise AssertionError(f"unexpected endpoint: {url}")
 
 
+def _review(run_id=1, verdict="CLEAN"):
+    stable = "DEEDSEAL_REVIEW_REPAIR_REQUIRED/v1" if verdict == "REPAIR_REQUIRED" else "DEEDSEAL_REVIEW_ACCEPTABLE/v1"
+    findings = "1" if verdict == "REPAIR_REQUIRED" else "0"
+    return {"id": 44, "commit_id": HEAD, "state": "COMMENTED",
+            "user": {"login": "deedseal-review-bot[bot]"},
+            "body": ("DEEDSEAL_AUTOMATED_REVIEW/v1\nrepository=deedseal/proof-check\n"
+                     f"pr={PR_NUMBER}\nhead={HEAD}\nrun={run_id}\nsource_summary_comment_id=1\n"
+                     f"verdict={verdict}\nfindings={findings}\n{stable}\n")}
+
+
 def _run(runs=None, **kwargs):
-    transport = FixtureTransport({1: runs or []}, **kwargs)
+    actual_runs = runs or []
+    success = next((item for item in actual_runs if item.get("conclusion") == "success"), None)
+    reviews = {1: [_review(success.get("id", 1))]} if success else {1: []}
+    transport = FixtureTransport({1: actual_runs}, reviews=reviews, **kwargs)
     result = CHECK.decide(
         "deedseal/proof-check",
         PR_NUMBER,
@@ -111,6 +128,21 @@ def test_t3_successful_run_on_head_is_fresh():
     assert result["matched_run_id"] == 77
 
 
+def test_repair_review_is_fresh_but_blocking():
+    run = _run_record(id=77)
+    transport = FixtureTransport({1: [run]}, reviews={1: [_review(77, "REPAIR_REQUIRED")]})
+    result = CHECK.decide("deedseal/proof-check", PR_NUMBER, HEAD, "token", transport=transport)
+    assert (result["decision"], result["reason"]) == ("BLOCKING", "REVIEW_REPAIR_REQUIRED")
+
+
+def test_missing_or_duplicate_formal_review_fails_closed():
+    run = _run_record()
+    for reviews in ([], [_review(), _review()]):
+        result = CHECK.decide("deedseal/proof-check", PR_NUMBER, HEAD, "token",
+                              transport=FixtureTransport({1: [run]}, reviews={1: reviews}))
+        assert (result["decision"], result["reason"]) == ("STALE", "REVIEW_EXECUTION_FAILED")
+
+
 @pytest.mark.parametrize("modified", [False, True])
 def test_t5_t6_reviewer_blob_binding(modified):
     result, transport = _run([_run_record()], modified=modified)
@@ -156,7 +188,7 @@ def test_latest_completed_failure_supersedes_older_success():
 def test_pagination_beyond_one_page():
     page_one = [_run_record(id=value, head_sha="2" * 40) for value in range(100)]
     page_two = _load("pagination-page-2.json")["workflow_runs"]
-    transport = FixtureTransport({1: page_one, 2: page_two})
+    transport = FixtureTransport({1: page_one, 2: page_two}, reviews={1: [_review(302)]})
     result = CHECK.decide(
         "deedseal/proof-check", PR_NUMBER, HEAD, "token", transport=transport
     )
