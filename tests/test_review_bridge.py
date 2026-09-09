@@ -74,3 +74,41 @@ def test_conflicts_and_readback_mismatch_refuse():
         BRIDGE.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=RecordingTransport(existing=conflicting))
     with pytest.raises(BRIDGE.Refusal):
         BRIDGE.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=RecordingTransport(readback={"id": 91}))
+
+
+def _mutant(tmp_path, old, new):
+    source = (Path(__file__).parents[1] / "tools/review_bridge.py").read_text()
+    assert source.count(old) == 1
+    path = tmp_path / "mutant.py"
+    path.write_text(source.replace(old, new))
+    spec = importlib.util.spec_from_file_location("review_bridge_mutant_" + str(abs(hash(old + new))), path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_behavioral_mutants_kill_required_bridge_guards(tmp_path):
+    class GuardTransport(RecordingTransport):
+        def request(self, method, url, token, payload=None):
+            if method == "POST":
+                assert payload.get("commit_id") == HEAD and payload.get("event") == "COMMENT"
+            return super().request(method, url, token, payload)
+    for old, new in [('"commit_id": head, "event": "COMMENT"', '"event": "COMMENT"'),
+                     ('"event": "COMMENT"', '"event": "APPROVE"')]:
+        module = _mutant(tmp_path, old, new)
+        with pytest.raises(AssertionError):
+            module.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=GuardTransport())
+    module = _mutant(tmp_path, '(verdict == "CLEAN" and count != 0)', 'False')
+    with pytest.raises(AssertionError):
+        assert module.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY.replace("findings=0", "findings=1"), "token", transport=RecordingTransport()) is None
+    module = _mutant(tmp_path, 'if len(matches) > 1:', 'if False:')
+    body = module.review_body("owner/repo", 7, HEAD, RUN, 8, "CLEAN", 0)
+    duplicate = [{"id": n, "commit_id": HEAD, "state": "COMMENTED", "body": body, "user": {"login": module.APP_LOGIN}} for n in (1, 2)]
+    with pytest.raises(AssertionError):
+        assert module.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=RecordingTransport(existing=duplicate)) is None
+    module = _mutant(tmp_path, 'or read_back.get("body") != body', 'or False')
+    bad = {"id": 91, "commit_id": HEAD, "state": "COMMENTED", "body": "wrong", "user": {"login": module.APP_LOGIN}}
+    with pytest.raises(AssertionError):
+        assert module.publish("owner/repo", 7, HEAD, RUN, 8, SUMMARY, "token", transport=RecordingTransport(readback=bad)) is None
