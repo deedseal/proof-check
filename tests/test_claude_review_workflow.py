@@ -142,6 +142,39 @@ def test_prompt_requires_independent_review_and_zero_finding_summary():
     assert 'Recheck the PR head' not in PROMPT
 
 
+def test_prompt_uses_a_direct_allowed_summary_publication_path():
+    assert "gh pr comment NUMBER --repo OWNER/REPO --body-file -\n   <<'CLAUDE_REVIEW_SUMMARY'" in PROMPT
+    assert 'then a line containing\n   only `CLAUDE_REVIEW_SUMMARY`' in PROMPT
+    assert 'Do not use Write, Edit, cat, echo, a pipeline, or a temporary\n   file' in PROMPT
+
+
+def test_direct_heredoc_summary_publication_path(tmp_path):
+    gh = tmp_path / 'gh'
+    received = tmp_path / 'received'
+    gh.write_text(textwrap.dedent('''\
+        #!/usr/bin/env python3
+        import os
+        import sys
+        from pathlib import Path
+
+        assert sys.argv[1:] == ['pr', 'comment', '9', '--repo', 'owner/repo',
+                                '--body-file', '-']
+        Path(os.environ['RECEIVED']).write_text(sys.stdin.read())
+    '''))
+    gh.chmod(0o755)
+    summary = f'Reviewed fixture.\n\nCLAUDE_REVIEW head={HEAD} run={RUN} findings=0\n'
+    command = """gh pr comment 9 --repo owner/repo --body-file - <<'CLAUDE_REVIEW_SUMMARY'
+{summary}CLAUDE_REVIEW_SUMMARY
+""".format(summary=summary)
+    result = subprocess.run(
+        ['bash', '-c', command], text=True, capture_output=True,
+        env={**os.environ, 'PATH': str(tmp_path) + os.pathsep + os.environ['PATH'],
+             'RECEIVED': str(received)},
+    )
+    assert result.returncode == 0, result.stderr
+    assert received.read_text() == summary
+
+
 def test_loads_file_bytes_and_exact_context(tmp_path):
     trusted_prompt = tmp_path / 'trusted/.github/claude-review/PROMPT.md'
     trusted_prompt.parent.mkdir(parents=True)
