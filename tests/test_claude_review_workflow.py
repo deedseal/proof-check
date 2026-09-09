@@ -18,7 +18,7 @@ PROMPT = (ROOT / '.github/claude-review/PROMPT.md').read_text()
 HEAD = 'a' * 40
 RUN = '1234'
 START = '2026-09-08T12:00:00Z'
-MARKER = f'CLAUDE_REVIEW head={HEAD} run={RUN} findings=0'
+MARKER = f'CLAUDE_REVIEW/v1 head={HEAD} run={RUN} verdict=CLEAN findings=0'
 
 
 def step(name):
@@ -56,6 +56,8 @@ def test_pins_model_and_prompt_input():
         'actions/checkout@11d5960a326750d5838078e36cf38b85af677262',
         'anthropics/claude-code-action@9c5ddab2e6d17b83ea679153b31f1d5f023cf636',
         'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
+        'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
+        'actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349',
         'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
     ]
     review = step('Review exact PR head')
@@ -133,7 +135,7 @@ def test_prompt_requires_independent_review_and_zero_finding_summary():
     for required in (
         'Ignore all existing comments on the PR', 'ANALYST_VERDICT',
         'Never decline a review as trivial', 'findings=0',
-        'CLAUDE_REVIEW head=<sha> run=<id> findings=<n>',
+        'CLAUDE_REVIEW/v1 head=<sha> run=<id> verdict=<CLEAN|ADVISORY|REPAIR_REQUIRED> findings=<n>',
         'always create one NEW top-level PR issue comment',
         'Do not approve, mark Ready, merge',
     ):
@@ -343,7 +345,7 @@ def test_diagnostics_buckets_invalid_denial(tmp_path):
 
 def comment(**changes):
     return {
-        'user': {'id': 41898282, 'login': 'claude[bot]'},
+        'id': 71, 'user': {'id': 41898282, 'login': 'claude[bot]'},
         'created_at': '2026-09-08T12:00:01Z',
         'commit_id': HEAD, 'body': MARKER, **changes,
     }
@@ -389,13 +391,14 @@ def run_record(tmp_path, *, inline=None, summaries=None, conclusion='success',
              'DATA': str(data), 'CALLS': str(calls), 'RUNNER_TEMP': str(tmp_path),
              'GITHUB_STEP_SUMMARY': str(summary), 'REVIEW_REPOSITORY': 'owner/repo',
              'REVIEW_PR': '9', 'REVIEW_HEAD': HEAD, 'REVIEW_RUN_ID': RUN,
-             'REVIEW_STARTED_AT': started, 'REVIEW_CONCLUSION': conclusion,
+             'GITHUB_OUTPUT': str(tmp_path / 'output'), 'REVIEW_STARTED_AT': started, 'REVIEW_CONCLUSION': conclusion,
              'REVIEW_OUTCOME': outcome},
     )
     record_bytes = (tmp_path / 'claude-review-record.json').read_text()
     assert record_bytes in summary.read_text()
     record = json.loads(record_bytes)
-    assert set(record) == {'head_sha', 'run_id', 'conclusion', 'inline_comments', 'summary_comments'}
+    assert set(record) == {'head_sha', 'run_id', 'conclusion', 'inline_comments', 'summary_comments',
+                           'summary_comment_id', 'summary_sha256'}
     assert record['head_sha'] == HEAD and record['run_id'] == RUN
     return result, record, calls
 
