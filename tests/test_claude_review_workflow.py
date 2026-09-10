@@ -63,7 +63,8 @@ def test_pins_model_and_prompt_input():
     ]
     review = step('Review exact PR head')
     assert '--model claude-sonnet-5' in review
-    assert '--max-turns 16' in review
+    assert '--max-turns 24' in review
+    assert '--max-turns 16' not in review
     assert 'prompt: ${{ steps.prompt.outputs.prompt }}' in review
     for absent in ('plugin_marketplaces:', 'plugins:', 'prompt_file:', '/code-review:'):
         assert absent not in WORKFLOW
@@ -143,6 +144,19 @@ def test_prompt_requires_independent_review_and_zero_finding_summary():
         assert required in PROMPT
     assert PROMPT.count('gh pr view NUMBER') == 1
     assert 'Recheck the PR head' not in PROMPT
+
+
+def test_prompt_bounds_discovery_and_prioritizes_direct_summary_publication():
+    assert PROMPT.count('gh pr view NUMBER') == 1
+    assert PROMPT.count('gh pr diff NUMBER') == 1
+    for required in (
+        'Use exactly these two GitHub discovery calls, once each',
+        'Inspect the changed files and only directly necessary nearby\n   code',
+        'For a small bounded diff, do not explore the repository broadly',
+        'Once\n   findings are decided, publish the required summary immediately',
+        'do not spend\n   turns re-reading comments, restating this task, or retrying forbidden\n   construction paths',
+    ):
+        assert required in PROMPT
 
 
 def test_prompt_uses_a_direct_allowed_summary_publication_path():
