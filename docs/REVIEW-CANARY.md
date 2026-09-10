@@ -37,3 +37,13 @@ The current reviewer workflow triggers only for `opened` and
 push does not by itself start Claude Review. An installed or merged workflow is
 not a successful live canary: qualification remains pending until the expected
 evidence is observed on an ordinary pull request.
+
+## What a later push does
+
+A push moves the head. `Review Freshness` then looks for a successful reviewer
+run recorded against the new head, finds none, and reports `NO_RUN_FOR_HEAD`,
+so the check turns red. The earlier formal review stays visible on the pull
+request and keeps its own `commit_id`, which is the previous head; it is
+evidence about that commit and no longer about the one under review. Because
+the reviewer triggers only on `opened` and `ready_for_review`, a new reviewer
+run is requested by marking the pull request Ready again, not by pushing.
