@@ -85,6 +85,7 @@ def test_live_issue_allowlist_pins_the_exact_declaration_bytes(tmp_path):
     ("Scope-Issue: #7\n", {"state": "open", "body": "## Allowlist\n"}),  # empty section
     ("Scope-Issue: #7\n", {"state": "open", "body": "## Allowlist\na\na\n"}),  # duplicate entry
     ("Scope-Issue: #7\n", {"state": "open", "body": "stray prose\n## Allowlist\na\n"}),  # content outside
+    ("Scope-Issue: #7\n", {"state": "open", "body": "## Allowlist\na\n## Notes\n"}),  # F1: extra heading
 ])
 def test_malformed_reference_or_declaration_fails_closed(tmp_path, pr_body, issue):
     result = run_declare(tmp_path, pr_body=pr_body, issue=issue)

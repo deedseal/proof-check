@@ -43,16 +43,15 @@ jobs:
               body_bytes = raw_body.encode('utf-8')
           except UnicodeEncodeError:
               refuse('the referenced Issue body cannot be preserved as UTF-8')
-          headings = re.findall(r'^##\s*Allowlist\s*$', raw_body, re.M)
-          if len(headings) != 1:
-              refuse(f'the Issue must declare exactly one `## Allowlist` section, found {len(headings)}')
-          section = re.search(r'^##\s*Allowlist\s*$(.*)', raw_body, re.M | re.S).group(1)
-          # Same "ignore blank and `#`-prefixed lines" rule the pinned-source manifest parser uses.
-          clean = lambda text: [l.strip() for l in text.splitlines() if l.strip() and not l.strip().startswith('#')]
-          entries, full = clean(section), clean(raw_body)
+          parts = raw_body.split('\n')
+          heads = [i for i, l in enumerate(parts) if l.strip().startswith('#')]
+          if len(heads) != 1 or not re.fullmatch(r'##\s*Allowlist\s*', parts[heads[0]].strip()):
+              refuse('the Issue must contain exactly one `## Allowlist` heading and no other heading or comment')
+          if any(l.strip() for l in parts[:heads[0]]):
+              refuse('the Issue body has content before its single `## Allowlist` heading')
+          entries = [l.strip() for l in parts[heads[0] + 1:] if l.strip()]
           if not entries: refuse('the `## Allowlist` section carries no entries')
           if len(entries) != len(set(entries)): refuse('the `## Allowlist` section has duplicate entries')
-          if entries != full: refuse('the Issue body has content outside its single `## Allowlist` section')
           Path('bundle').mkdir(exist_ok=True)
           Path('bundle/declaration.txt').write_bytes(body_bytes)
           digest = hashlib.sha256(body_bytes).hexdigest()
