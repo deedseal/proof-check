@@ -346,14 +346,15 @@ def test_diagnostics_buckets_invalid_denial(tmp_path):
 
 def comment(**changes):
     return {
-        'id': 71, 'user': {'id': 41898282, 'login': 'claude[bot]'},
+        'id': 71, 'user': {'id': 209825114, 'login': 'claude[bot]'},
         'created_at': '2026-09-08T12:00:01Z',
         'commit_id': HEAD, 'body': MARKER, **changes,
     }
 
 
 def run_record(tmp_path, *, inline=None, summaries=None, conclusion='success',
-               outcome='success', api_error=False, malformed=False, started=START):
+               outcome='success', api_error=False, malformed=False, started=START,
+               recorder=None):
     data = tmp_path / 'data.json'
     data.write_text(json.dumps({'inline': inline or [], 'summaries': summaries or [],
                                 'api_error': api_error, 'malformed': malformed}))
@@ -386,7 +387,8 @@ def run_record(tmp_path, *, inline=None, summaries=None, conclusion='success',
     summary = tmp_path / 'summary.md'
     calls = tmp_path / 'calls'
     result = subprocess.run(
-        ['python3', '-I', '-'], input=program('Record review from GitHub and require a summary'),
+        ['python3', '-I', '-'], input=(recorder or program(
+            'Record review from GitHub and require a summary')),
         cwd=tmp_path, text=True, capture_output=True,
         env={**os.environ, 'PATH': str(tmp_path) + os.pathsep + os.environ['PATH'],
              'DATA': str(data), 'CALLS': str(calls), 'RUNNER_TEMP': str(tmp_path),
@@ -404,7 +406,7 @@ def run_record(tmp_path, *, inline=None, summaries=None, conclusion='success',
     return result, record, calls
 
 
-def test_zero_findings_summary_is_sufficient(tmp_path):
+def test_live_claude_author_pair_accepts_and_hands_off_digest(tmp_path):
     result, record, _ = run_record(tmp_path, summaries=[comment()])
     assert result.returncode == 0, result.stderr
     assert record['conclusion'] == 'success'
@@ -419,9 +421,31 @@ def test_zero_findings_summary_is_sufficient(tmp_path):
     assert '--summary-file "$RUNNER_TEMP/claude-review-summary.txt"' in publish
 
 
+@pytest.mark.parametrize('user', [
+    {'id': 41898282, 'login': 'claude[bot]'},
+    {'id': 209825114, 'login': 'someone-else'},
+    {'id': 281412522, 'login': 'avoroncov971-maker'},
+    {'id': 1, 'login': 'unknown'},
+])
+def test_non_live_claude_identity_cannot_satisfy_summary(tmp_path, user):
+    result, record, _ = run_record(tmp_path, summaries=[comment(user=user)])
+    assert result.returncode == 1
+    assert record['conclusion'] == 'failure'
+    assert record['summary_comments'] == 0
+
+
+def test_restoring_prior_producer_id_kills_live_identity_regression(tmp_path):
+    recorder = program('Record review from GitHub and require a summary')
+    restored_wrong_id = recorder.replace('209825114', '41898282')
+    assert restored_wrong_id != recorder
+    result, record, _ = run_record(
+        tmp_path, summaries=[comment()], recorder=restored_wrong_id)
+    assert result.returncode == 1
+    assert record['conclusion'] == 'failure'
+
+
 @pytest.mark.parametrize('changes', [
     {'user': {'id': 1, 'login': 'claude[bot]'}},
-    {'user': {'id': 41898282, 'login': 'someone-else'}},
     {'created_at': START},
     {'created_at': '2026-09-07T12:00:00Z'},
     {'created_at': '2026-09-08T14:00:00+02:00'},
