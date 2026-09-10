@@ -244,7 +244,7 @@ jobs:
 
               def authored_this_job(comment):
                   user = comment['user']
-                  return (user['id'] == 41898282 and user['login'] == 'claude[bot]'
+                  return (user['id'] == 209825114 and user['login'] == 'claude[bot]'
                           and timestamp(comment['created_at']) > started)
 
               marker = re.compile(
