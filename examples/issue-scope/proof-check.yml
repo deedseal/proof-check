@@ -1,0 +1,79 @@
+name: Proof Check (Issue-bound scope)
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+jobs:
+  proof-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve the Scope-Issue declaration into a pinned policy
+        id: declare
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEW_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 -I - <<'PY'
+          import hashlib, json, os, re, subprocess, sys
+          from pathlib import Path
+          def refuse(message):
+              print(f'REFUSED: {message}', file=sys.stderr)
+              sys.exit(2)
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
+          body = event['pull_request']['body'] or ''
+          lines = [line.strip() for line in body.splitlines() if line.strip().startswith('Scope-Issue:')]
+          matches = [m for m in (re.fullmatch(r'Scope-Issue: #([1-9][0-9]*)', line) for line in lines) if m]
+          if len(lines) != 1 or len(matches) != 1:
+              refuse(f'the PR body must contain exactly one `Scope-Issue: #<number>` line, found {len(lines)}')
+          number = matches[0].group(1)
+          result = subprocess.run(['gh', 'api', f"repos/{os.environ['REVIEW_REPOSITORY']}/issues/{number}"],
+                                   capture_output=True, text=True, timeout=30)
+          if result.returncode != 0: refuse('the referenced Issue is unavailable')
+          issue = json.loads(result.stdout)
+          if 'pull_request' in issue: refuse('Scope-Issue must reference an Issue, not a pull request')
+          if issue.get('state') != 'open': refuse('the referenced Issue is closed')
+          raw_body = issue.get('body')
+          if not isinstance(raw_body, str): refuse('the referenced Issue has no body')
+          try:
+              body_bytes = raw_body.encode('utf-8')
+          except UnicodeEncodeError:
+              refuse('the referenced Issue body cannot be preserved as UTF-8')
+          parts = raw_body.split('\n')
+          heads = [i for i, l in enumerate(parts) if l.strip().startswith('#')]
+          if len(heads) != 1 or not re.fullmatch(r'##\s*Allowlist\s*', parts[heads[0]].strip()):
+              refuse('the Issue must contain exactly one `## Allowlist` heading and no other heading or comment')
+          if any(l.strip() for l in parts[:heads[0]]):
+              refuse('the Issue body has content before its single `## Allowlist` heading')
+          entries = [l.strip() for l in parts[heads[0] + 1:] if l.strip()]
+          if not entries: refuse('the `## Allowlist` section carries no entries')
+          if len(entries) != len(set(entries)): refuse('the `## Allowlist` section has duplicate entries')
+          Path('bundle').mkdir(exist_ok=True)
+          Path('bundle/declaration.txt').write_bytes(body_bytes)
+          digest = hashlib.sha256(body_bytes).hexdigest()
+          policy = {'schema_version': 'proof-check-policy/v1', 'checks': {'required_selectors': []},
+                     'scope': {'source': f'pinned:{digest}', 'trust': 'advisory'},
+                     'reviews': {'policy': 'report_only'}, 'receipt': {'mode': 'always'},
+                     'verdict_policy': {'fail_exit': 10, 'indeterminate_exit': 20}}
+          Path('bundle/policy.json').write_text(json.dumps(policy), encoding='utf-8')
+          print(f'issue=#{number} entries={len(entries)} digest={digest}')
+          PY
+      - name: Evaluate the PR head against the Issue-bound scope
+        if: ${{ steps.declare.outcome == 'success' }}
+        uses: deedseal/proof-check@363aad91142a01df6e5d72a87495d2f09be28823 # v0.1.1
+        with:
+          policy: bundle/policy.json
+          declaration: bundle/declaration.txt
+          receipt: bundle/receipt.json
+          target: head
+      - name: Upload offline-verifiable bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: issue-scope-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: bundle/
+          if-no-files-found: ignore
