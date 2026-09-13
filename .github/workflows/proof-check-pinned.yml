@@ -1,7 +1,7 @@
 name: Proof Check Pinned
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions:
@@ -16,13 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout subject as data only
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          path: subject
-          persist-credentials: false
-      - name: Checkout candidate verifier and policy
+      - name: Checkout accepted verifier and policy
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: deedseal/proof-check
@@ -41,14 +35,14 @@ jobs:
           Path('proof-check-bundle/declaration.txt').write_bytes(
               (event['pull_request']['body'] or '').encode('utf-8'))
           PY
-      - name: Evaluate exact PR head with candidate checker
+      - name: Evaluate exact PR head with accepted checker
         uses: deedseal/proof-check@ea1536eda18fc59a36c3b08edaa93b2ecee111dd
         with:
           policy: proof-check-bundle/policy.json
           declaration: proof-check-bundle/declaration.txt
           receipt: proof-check-bundle/receipt.json
           target: head
-      - name: Verify receipt offline with candidate verifier
+      - name: Verify receipt offline with accepted verifier
         if: ${{ always() && hashFiles('proof-check-bundle/receipt.json') != '' }}
         shell: bash
         run: |
