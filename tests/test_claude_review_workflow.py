@@ -40,14 +40,42 @@ def program(name):
     return textwrap.dedent(match.group(1))
 
 
+def configured_review_guard(*, action, label=None, sender=0, draft=False, fork=False):
+    """Evaluate the review job's actual GitHub expression against one event."""
+    match = re.search(r'^    if: >-\n((?:      .*\n)+?)    runs-on:', WORKFLOW,
+                      re.MULTILINE)
+    assert match
+    expression = ' '.join(line.strip() for line in match.group(1).splitlines())
+    expression = expression.replace('github.event.pull_request.draft', repr(draft))
+    expression = expression.replace('github.event.pull_request.head.repo.full_name',
+                                    repr('fork/repo' if fork else 'owner/repo'))
+    expression = expression.replace('github.repository', repr('owner/repo'))
+    expression = expression.replace('github.event.action', repr(action))
+    expression = expression.replace('github.event.label.name', repr(label))
+    expression = expression.replace('github.event.sender.id', repr(sender))
+    expression = expression.replace('false', 'False').replace('&&', ' and ').replace('||', ' or ')
+    return bool(eval(expression, {'__builtins__': {}}, {}))
+
+
 def test_trigger_permissions_and_draft_guard_are_preserved():
-    assert 'on:\n  pull_request:\n    types: [opened, ready_for_review]\n' in WORKFLOW
+    assert 'on:\n  pull_request:\n    types: [opened, ready_for_review, labeled]\n' in WORKFLOW
     assert 'permissions:\n  contents: read\n  pull-requests: read\n  issues: read\n  id-token: write\n' in WORKFLOW
     assert 'github.event.pull_request.draft == false &&' in WORKFLOW
     assert 'github.event.pull_request.head.repo.full_name == github.repository' in WORKFLOW
     assert 'timeout-minutes: 30' in WORKFLOW
     assert 'cancel-in-progress: true' in WORKFLOW
     assert 'continue-on-error:' not in WORKFLOW
+
+
+def test_labeled_review_guard_only_admits_owner_rereview_requests():
+    owner = 281412522
+    assert configured_review_guard(action='labeled', label='re-review', sender=owner)
+    assert not configured_review_guard(action='labeled', label='different-label', sender=owner)
+    assert not configured_review_guard(action='labeled', label='re-review', sender=owner + 1)
+    assert not configured_review_guard(action='labeled', label='re-review', sender=owner, draft=True)
+    assert not configured_review_guard(action='labeled', label='re-review', sender=owner, fork=True)
+    assert configured_review_guard(action='opened')
+    assert configured_review_guard(action='ready_for_review')
 
 
 def test_pins_model_and_prompt_input():
